@@ -1,4 +1,4 @@
-# Official Code for Phantom and Masquerade
+# Code for Phantom and Masquerade
 [![Python](https://img.shields.io/badge/python-3.10-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 <hr style="border: 2px solid gray;"></hr>
