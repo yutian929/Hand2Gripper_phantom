@@ -59,8 +59,8 @@ import torch
 import cv2
 from tqdm import tqdm
 from wilor_mini.pipelines.wilor_hand_pose3d_estimation_pipeline import WiLorHandPose3dEstimationPipeline
-from utils.types_hand_detection import HandDetection, BBox, FloatVector, HandState
-from utils.types_hand_detection import HandSide as Hand2Gripper_HandSide
+from phantom.utils.hand2gripper_types_hand_detection import HandDetection, BBox, FloatVector, HandState
+from phantom.utils.hand2gripper_types_hand_detection import HandSide as Hand2Gripper_HandSide
 # <<< Hand2Gripper <<< #
 
 logger = logging.getLogger(__name__)

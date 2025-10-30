@@ -111,6 +111,10 @@ def process_all_demos(cfg: DictConfig, processor_classes: dict) -> None:
     all_data_folders = base_processor.all_data_folders.copy()
     for mode in selected_modes:
         print(f"----------------- {mode.upper()} PROCESSOR -----------------")
+        # >>> Hand2Gripper >>> #
+        if mode.upper() in ('BBOX'):
+            continue
+        # <<< Hand2Gripper <<< #
         processor_cls = processor_classes[mode]
         processor = processor_cls(cfg)
         for data_sub_folder in tqdm(all_data_folders):

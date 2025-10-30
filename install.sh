@@ -68,4 +68,8 @@ cd ../..
 
 # >>> Hand2Gripper >>> #
 # Install Hand2gripper packages
-pip install git+https://github.com/warmshao/WiLoR-mini
+# Hand2Gripper_WiLoR-mini
+pip install git+https://github.com/yutian929/Hand2Gripper_WiLoR-mini
+
+# Hand2Gripper HACO
+pip install mediapipe easydict
