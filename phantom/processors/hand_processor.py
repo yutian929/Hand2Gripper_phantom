@@ -45,10 +45,10 @@ from phantom.processors.paths import Paths
 from phantom.processors.segmentation_processor import HandSegmentationProcessor
 
 # >>> Hand2Gripper >>> #
-import torch
-import cv2
-from utils.hand2gripper_visualize import vis_hand_2D_skeleton_without_bbox
-from wilor_mini.pipelines.wilor_hand_pose3d_estimation_pipeline import WiLorHandPose3dEstimationPipeline
+# import torch
+# import cv2
+# from utils.hand2gripper_visualize import vis_hand_2D_skeleton_without_bbox
+# from wilor_mini.pipelines.wilor_hand_pose3d_estimation_pipeline import WiLorHandPose3dEstimationPipeline
 # <<< Hand2Gripper <<< #
 
 logger = logging.getLogger(__name__)
@@ -97,9 +97,9 @@ class HandBaseProcessor(BaseProcessor):
         self.apply_depth_alignment: bool = False
 
         # >>> Hand2Gripper >>> #
-        device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-        dtype = torch.float16
-        self.wilor_pipe = WiLorHandPose3dEstimationPipeline(device=device, dtype=dtype, verbose=False)
+        # device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+        # dtype = torch.float16
+        # self.wilor_pipe = WiLorHandPose3dEstimationPipeline(device=device, dtype=dtype, verbose=False)
         # <<< Hand2Gripper <<< #
 
 
@@ -232,7 +232,7 @@ class HandBaseProcessor(BaseProcessor):
             # Apply HaMeR pose estimation within bounding box
             processed_data = self._process_image_with_hamer(img_rgb, bbox[None,...], hand_side, img_idx, view=view)
             # Change to WiLor
-            processed_data = self._process_image_with_wilor(img_rgb, bbox[None,...], hand_side, img_idx, view=view)
+            # processed_data = self._process_image_with_wilor(img_rgb, bbox[None,...], hand_side, img_idx, view=view)
             # <<< Hand2Gripper <<< #
 
             # Quality check: reject poses where keypoints are too close to image edges

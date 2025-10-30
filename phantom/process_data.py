@@ -112,8 +112,8 @@ def process_all_demos(cfg: DictConfig, processor_classes: dict) -> None:
     for mode in selected_modes:
         print(f"----------------- {mode.upper()} PROCESSOR -----------------")
         # >>> Hand2Gripper >>> #
-        if mode.upper() in ('BBOX'):
-            continue
+        # if mode.upper() in ('BBOX'):
+        #     continue
         # <<< Hand2Gripper <<< #
         processor_cls = processor_classes[mode]
         processor = processor_cls(cfg)

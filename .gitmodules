@@ -16,3 +16,7 @@
 [submodule "submodules/Hand2Gripper_WiLoR-mini"]
 	path = submodules/Hand2Gripper_WiLoR-mini
 	url = https://github.com/yutian929/Hand2Gripper_WiLoR-mini.git
+[submodule "submodules/Hand2Gripper_HACO"]
+	path = submodules/Hand2Gripper_HACO
+	url = https://github.com/yutian929/Hand2Gripper_HACO.git
+

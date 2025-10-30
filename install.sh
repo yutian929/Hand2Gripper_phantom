@@ -53,9 +53,6 @@ cd ../..
 pip install -e .
 cd ../..
 
-# Install phantom 
-pip install -e .
-
 # Download sample data
 cd data/raw
 wget https://download.cs.stanford.edu/juno/phantom/pick_and_place.zip
@@ -69,7 +66,17 @@ cd ../..
 # >>> Hand2Gripper >>> #
 # Install Hand2gripper packages
 # Hand2Gripper_WiLoR-mini
-pip install git+https://github.com/yutian929/Hand2Gripper_WiLoR-mini
+cd submodules/Hand2Gripper_WiLoR-mini/
+pip install -e .
+cd ../..
 
 # Hand2Gripper HACO
 pip install mediapipe easydict
+cd submodules/Hand2Gripper_HACO/
+pip install -e .
+cd ../..
+# <<< Hand2Gripper <<< #
+
+
+# Install phantom 
+pip install -e .
