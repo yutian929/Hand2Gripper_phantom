@@ -54,6 +54,15 @@ from phantom.processors.phantom_data import hand_side_dict
 
 from phantom.utils.bbox_utils import get_bbox_center, get_bbox_center_min_dist_to_edge
 
+# >>> Hand2Gripper >>> #
+import torch
+import cv2
+from tqdm import tqdm
+from wilor_mini.pipelines.wilor_hand_pose3d_estimation_pipeline import WiLorHandPose3dEstimationPipeline
+from utils.types_hand_detection import HandDetection, BBox, FloatVector, HandState
+from utils.types_hand_detection import HandSide as Hand2Gripper_HandSide
+# <<< Hand2Gripper <<< #
+
 logger = logging.getLogger(__name__)
 
 # Type aliases for better readability
@@ -120,6 +129,12 @@ class BBoxProcessor(BaseProcessor):
             self.dino_detector: DetectorDino = DetectorDino("IDEA-Research/grounding-dino-base")
         else:
             self.dino_detector: Optional[DetectorDino] = None
+
+        # >>> Hand2Gripper >>> #
+        device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+        dtype = torch.float16
+        self.wilor_pipe = WiLorHandPose3dEstimationPipeline(device=device, dtype=dtype)
+        # <<< Hand2Gripper <<< #
             
         # EPIC-specific attributes
         self.filtered_hand_detection_data: Dict[str, List[Any]] = {}
@@ -157,9 +172,16 @@ class BBoxProcessor(BaseProcessor):
         imgs_rgb = self._load_video(paths)
 
         # Process frames based on dataset type
+        # >>> Hand2Gripper >>> #
+        # Origin
+        # if self.epic:
+        #     self._load_epic_hand_data(paths)
+        #     detection_results = self._process_epic_frames(imgs_rgb)
+        # No need to use EPIC pre-defined data
         if self.epic:
-            self._load_epic_hand_data(paths)
+            self._gen_epic_hand_data(imgs_rgb)
             detection_results = self._process_epic_frames(imgs_rgb)
+        # <<< Hand2Gripper <<< #
         else:
             detection_results = self._process_frames(imgs_rgb)
 
@@ -172,6 +194,61 @@ class BBoxProcessor(BaseProcessor):
         # Save all results to disk
         self._save_results(paths, processed_results, visualization_results)
 
+    def _gen_epic_hand_data(self, imgs_rgb: npt.NDArray[np.uint8]) -> None:
+        """
+        Generate hand detection data using WiLor and save it in the format required for EPIC.
+        
+        Args:
+            imgs_rgb: Array of RGB images (video frames) to process.
+        """
+        # Initialize a dictionary to store filtered hand detection data
+        all_detections = {}
+
+        # Iterate over the frames of the video (imgs_rgb)
+        for idx, img in enumerate(tqdm(imgs_rgb, desc="Generating hand detections")):
+            try:
+                # Perform hand detection using the WiLor pipeline
+                detections = self.wilor_pipe.hand_detector(img, conf=0.3, verbose=False)[0]
+                
+                # Check if detections exist
+                if len(detections) == 0:
+                    all_detections[idx] = []
+                    continue
+
+                # Extract the bounding boxes and other relevant data
+                for det in detections:
+                    bbox = det.boxes.xyxyn[0].cpu().numpy()  # xyxyn
+                    score = det.boxes.conf[0].cpu().numpy()  # confidence score
+                    is_right = det.boxes.cls[0].cpu().numpy() > 0.5
+                    side = Hand2Gripper_HandSide.RIGHT if is_right else Hand2Gripper_HandSide.LEFT
+                    
+                    # Create a HandDetection object similar to the EPIC data format
+                    hand_detection = HandDetection(
+                        bbox=BBox(
+                            left=bbox[0],
+                            top=bbox[1],
+                            right=bbox[2],
+                            bottom=bbox[3]
+                        ),
+                        score=score,
+                        state=HandState.PORTABLE_OBJECT,  # DON'T CARE
+                        object_offset=FloatVector(x=0.0, y=0.0),  # DON'T CARE
+                        side=side
+                    )
+                    
+                    # Add this detection to the all_detections dictionary
+                    if idx not in all_detections:
+                        all_detections[idx] = []
+                    all_detections[idx].append(hand_detection)
+                
+            except Exception as e:
+                logger.warning(f"Error processing frame {idx}: {str(e)}")
+                continue
+
+        # After processing all frames, update the class' `filtered_hand_detection_data`
+        self.filtered_hand_detection_data = all_detections
+        self.sorted_keys = sorted(all_detections.keys())
+        logger.info(f"Generated hand detection data for {len(all_detections)} frames.")
 
     def _load_video(self, paths: Paths) -> np.ndarray:
         """

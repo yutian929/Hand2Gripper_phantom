@@ -65,3 +65,7 @@ wget https://download.cs.stanford.edu/juno/phantom/epic.zip
 unzip epic.zip
 rm epic.zip
 cd ../..
+
+# >>> Hand2Gripper >>> #
+# Install Hand2gripper packages
+pip install git+https://github.com/warmshao/WiLoR-mini

@@ -44,6 +44,12 @@ from phantom.processors.phantom_data import HandSequence, HandFrame, hand_side_d
 from phantom.processors.paths import Paths
 from phantom.processors.segmentation_processor import HandSegmentationProcessor
 
+# >>> Hand2Gripper >>> #
+import torch
+import cv2
+from wilor_mini.pipelines.wilor_hand_pose3d_estimation_pipeline import WiLorHandPose3dEstimationPipeline
+# <<< Hand2Gripper <<< #
+
 logger = logging.getLogger(__name__)
 
 class HandBaseProcessor(BaseProcessor): 
@@ -88,6 +94,13 @@ class HandBaseProcessor(BaseProcessor):
         self._initialize_detectors()
         self.hand_mask_processor: Optional[HandSegmentationProcessor] = None
         self.apply_depth_alignment: bool = False
+
+        # >>> Hand2Gripper >>> #
+        device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+        dtype = torch.float16
+        self.wilor_pipe = WiLorHandPose3dEstimationPipeline(device=device, dtype=dtype)
+        # <<< Hand2Gripper <<< #
+
 
     def _initialize_detectors(self) -> None:
         """
