@@ -3,9 +3,12 @@ debug: false
 verbose: false
 skip_existing: false
 n_processes: 1
-data_root_dir: "../data/raw_data/"
-processed_data_root_dir: "../data/processed_data/"
-demo_name: ""
+data_root_dir: "../data/raw/"
+processed_data_root_dir: "../data/processed/"
+# >>> Hand2Gripper >>>
+hand2gripper_annotation_data_root_dir: "../data/hand2gripper_annotations/"
+# <<< Hand2Gripper <<<
+demo_name: "epic"
 
 # Processing settings
 mode: ["bbox"]  # Default processing mode

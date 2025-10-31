@@ -83,6 +83,11 @@ class Paths:
         self.video_birdview = self.inpaint_processor / "video_birdview.mkv"
         self.training_data = self.inpaint_processor / "training_data.npz"
 
+        # >>> Hand2Gripper >>> #
+        # hand2gripper annotator processor
+        self.hand2gripper_annotator_processor = self.data_path / "hand2gripper_annotator_processor"
+        # <<< Hand2Gripper <<< #
+
     def _setup_original_images(self):
         """Set up original images paths."""
         convert_video_to_images(self.video_left, self.original_images_folder, square=False)

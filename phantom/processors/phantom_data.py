@@ -215,7 +215,8 @@ class HandFrame:
     kpts_2d: np.ndarray  # shape: (N, 2)
     kpts_3d: np.ndarray  # shape: (N, 3)
     # >>> Hand2Gripper >>> #
-    contact_logits: np.ndarray = np.zeros((21,))  # shape: (N,)
+    contact_logits: np.ndarray  # shape: (N,)
+    crop_img_rgb: np.ndarray  # shape: (H, W, 3)
     # <<< Hand2Gripper <<< #
 
     @classmethod
@@ -230,6 +231,7 @@ class HandFrame:
             kpts_3d=np.zeros((21, 3)),
             # >>> Hand2Gripper >>> #
             contact_logits=np.zeros((21,)),
+            crop_img_rgb=np.zeros_like(img_rgb),
             # <<< Hand2Gripper <<< #
         )
 
@@ -247,6 +249,7 @@ class HandSequence(LazyLoadingMixin):
         self._kpts_3d: Optional[np.ndarray] = None
         # >>> Hand2Gripper >>> #
         self._contact_logits: Optional[np.ndarray] = None
+        self._crop_img_rgb: Optional[np.ndarray] = None
         # <<< Hand2Gripper <<< #
     
     def add_frame(self, frame: HandFrame) -> None:
@@ -336,6 +339,14 @@ class HandSequence(LazyLoadingMixin):
             '_contact_logits',
             lambda: np.stack([f.contact_logits for f in self.frames])
         )
+    
+    @property
+    def crop_imgs_rgb(self) -> np.ndarray:
+        """Lazy loading of all cropped RGB images"""
+        return self._get_cached_property(
+            '_crop_img_rgb',
+            lambda: np.stack([f.crop_img_rgb for f in self.frames])
+        )
     # <<< Hand2Gripper <<< #
     
     @classmethod
@@ -349,6 +360,10 @@ class HandSequence(LazyLoadingMixin):
         sequence._hand_detected = data['hand_detected']
         sequence._kpts_2d = data['kpts_2d']
         sequence._kpts_3d = data['kpts_3d']
+        # >>> Hand2Gripper >>> #
+        sequence._contact_logits = data['contact_logits']
+        sequence._crop_img_rgb = data['crop_img_rgb']
+        # <<< Hand2Gripper <<< #
     
         return sequence
 
@@ -360,3 +375,7 @@ class HandSequence(LazyLoadingMixin):
         self._img_hamer = None
         self._kpts_2d = None
         self._kpts_3d = None
+        # >>> Hand2Gripper >>> #
+        self._contact_logits = None
+        self._crop_img_rgb = None
+        # <<< Hand2Gripper <<< #

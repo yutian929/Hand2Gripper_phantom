@@ -9,7 +9,6 @@ from omegaconf import DictConfig
 from phantom.processors.base_processor import BaseProcessor
 
 logging.basicConfig(level=logging.WARNING, format="%(name)s - %(levelname)s - %(message)s")
-os.environ['PYOPENGL_PLATFORM'] = 'egl'
 
 class ProcessingMode(Enum):
     """Enumeration of valid processing modes."""

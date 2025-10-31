@@ -287,6 +287,7 @@ class HandBaseProcessor(BaseProcessor):
             # cv2.imwrite(f"debug/{img_idx}_{hand_side}.png", contact_result['crop_img'])
             contact_outputs = contact_result['raw_outputs']
             contact_logits = contact_outputs['contact_joint_out'][0].cpu().numpy()
+            crop_img_rgb = contact_result['crop_img']
             # <<< Hand2Gripper <<< #
             
             # Create frame with validated pose data
@@ -299,6 +300,7 @@ class HandBaseProcessor(BaseProcessor):
                 kpts_3d=processed_data["kpts_3d"],
                 # >>> Hand2Gripper >>>
                 contact_logits=contact_logits,
+                crop_img_rgb=crop_img_rgb,
                 # <<< Hand2Gripper <<<
             )
 
