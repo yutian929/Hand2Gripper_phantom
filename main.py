@@ -1,6 +1,10 @@
+
+
+
 def test_haco():
-    from hand2gripper_haco import HACOContactEstimator, WILORHandDetector
+    from hand2gripper_haco import HACOContactEstimator, WILORHandDetector, HACOContactEstimatorWithoutRenderer
     import os
+    import cv2
     # Hand Detection Configuration
     detector_type = 'wilor'  # Options: 'wilor' or 'mediapipe'
     # - 'wilor': Uses YOLO-based WILOR detector for hand detection
@@ -52,8 +56,23 @@ def test_haco():
         checkpoint_path=checkpoint_path,
         experiment_dir=experiment_dir
     )
-    
+
+    img_rgb = cv2.imread('epic_kitch_demo.jpg')[..., ::-1]  # Load demo image and convert BGR to RGB
+    H, W, _ = img_rgb.shape
+    res = contact_estimator.predict_contact(img_rgb, bbox=[W//2, 2*H//3, 3*W//4, H])  # Predict contact using bounding box covering center of image
+    cv2.imshow("Contact Visualization", res['contact_rendered'][..., ::-1])  # Display contact visualization (convert RGB to BGR for OpenCV)
+    cv2.waitKey(1000)  # Wait for a key press to close the window
     print("All components initialized successfully!")
+
+    contact_estimator_without_renderer = HACOContactEstimatorWithoutRenderer(
+        backbone=backbone,
+        checkpoint_path=checkpoint_path,
+        experiment_dir=experiment_dir
+    )
+    res_no_renderer = contact_estimator_without_renderer.predict_contact(img_rgb, bbox=[W//2, 2*H//3, 3*W//4, H])
+    print(res_no_renderer.keys())
+
+
 
 
 def test_wilor_hand_pose3d_estimation_pipeline():

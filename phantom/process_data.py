@@ -1,5 +1,6 @@
 import logging
 from enum import Enum
+import os
 from tqdm import tqdm
 from joblib import Parallel, delayed  # type: ignore
 import hydra
@@ -8,6 +9,7 @@ from omegaconf import DictConfig
 from phantom.processors.base_processor import BaseProcessor
 
 logging.basicConfig(level=logging.WARNING, format="%(name)s - %(levelname)s - %(message)s")
+os.environ['PYOPENGL_PLATFORM'] = 'egl'
 
 class ProcessingMode(Enum):
     """Enumeration of valid processing modes."""
@@ -112,8 +114,8 @@ def process_all_demos(cfg: DictConfig, processor_classes: dict) -> None:
     for mode in selected_modes:
         print(f"----------------- {mode.upper()} PROCESSOR -----------------")
         # >>> Hand2Gripper >>> #
-        # if mode.upper() in ('BBOX'):
-        #     continue
+        if mode.upper() in ('BBOX'):
+            continue
         # <<< Hand2Gripper <<< #
         processor_cls = processor_classes[mode]
         processor = processor_cls(cfg)

@@ -33,16 +33,6 @@ cd submodules/phantom-robomimic
 pip install -e .
 cd ../..
 
-# Install additional packages
-pip install joblib mediapy open3d pandas
-pip install transformers==4.42.4
-pip install PyOpenGL==3.1.4
-pip install Rtree
-pip install git+https://github.com/epic-kitchens/epic-kitchens-100-hand-object-bboxes.git
-pip install protobuf==3.20.0
-pip install hydra-core==1.3.2
-pip install omegaconf==2.3.0
-
 # Download E2FGVI weights
 cd submodules/phantom-E2FGVI/E2FGVI/release_model/
 pip install gdown
@@ -71,12 +61,24 @@ pip install -e .
 cd ../..
 
 # Hand2Gripper HACO
+# TODO: Download the pre-trained model weights and put them in base_data/
 pip install mediapipe easydict
 cd submodules/Hand2Gripper_HACO/
+pip install -r requirements.txt
 pip install -e .
 cd ../..
 # <<< Hand2Gripper <<< #
 
 
-# Install phantom 
+# Install phantom
+# Install additional packages
+pip install joblib mediapy open3d pandas
+pip install transformers==4.42.4
+pip install PyOpenGL==3.1.4
+pip install Rtree
+pip install git+https://github.com/epic-kitchens/epic-kitchens-100-hand-object-bboxes.git
+pip install protobuf==3.20.0
+pip install hydra-core==1.3.2
+pip install omegaconf==2.3.0
+pip install numpy==1.26.4
 pip install -e .

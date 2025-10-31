@@ -46,9 +46,33 @@ from phantom.processors.segmentation_processor import HandSegmentationProcessor
 
 # >>> Hand2Gripper >>> #
 # import torch
-# import cv2
+import cv2
 # from utils.hand2gripper_visualize import vis_hand_2D_skeleton_without_bbox
 # from wilor_mini.pipelines.wilor_hand_pose3d_estimation_pipeline import WiLorHandPose3dEstimationPipeline
+from hand2gripper_haco import HACOContactEstimatorWithoutRenderer
+from utils.bbox_utils import xyxy_to_xywh
+def flip_color_and_bbox(color: np.ndarray, bbox_xywh: np.ndarray, img_size: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    color_flip = cv2.flip(color, 1)
+    W, H = img_size[0], img_size[1]
+    x, y, w, h = bbox_xywh
+
+    bbox_xywh_flip = np.array([
+        W - x - w,
+        y,
+        w,
+        h
+    ], dtype=bbox_xywh.dtype)
+    
+    return color_flip, bbox_xywh_flip
+    
+def flip_contact_result_right_to_left(contact_result: dict) -> dict:
+    contact_result_flip = {}
+    # flip vis images
+    contact_result_flip['crop_img'] = cv2.flip(contact_result['crop_img'], 1)
+    # by default, the joint order of the left and right hands is the same
+    contact_result_flip['raw_outputs'] = contact_result['raw_outputs']
+
+    return contact_result_flip
 # <<< Hand2Gripper <<< #
 
 logger = logging.getLogger(__name__)
@@ -100,6 +124,11 @@ class HandBaseProcessor(BaseProcessor):
         # device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         # dtype = torch.float16
         # self.wilor_pipe = WiLorHandPose3dEstimationPipeline(device=device, dtype=dtype, verbose=False)
+        self.contact_estimator = HACOContactEstimatorWithoutRenderer(
+            backbone="hamer",
+            checkpoint_path=os.path.join(os.path.dirname(__file__), '../../', 'submodules/Hand2Gripper_HACO/base_data/release_checkpoint/haco_final_hamer_checkpoint.ckpt'),
+            experiment_dir="/tmp/haco_experiment"
+        )
         # <<< Hand2Gripper <<< #
 
 
@@ -243,6 +272,23 @@ class HandBaseProcessor(BaseProcessor):
                     img_rgb=img_rgb,
                 )
             
+            # >>> Hand2Gripper >>> #
+            # Apply HACO contact estimation
+            bbox_xywh = xyxy_to_xywh(bbox)
+            is_right = hand_side == "right"
+            img_rgb = cv2.cvtColor(img_rgb, cv2.COLOR_BGR2RGB)
+            if is_right:
+                contact_result = self.contact_estimator.predict_contact(img_rgb, bbox_xywh)
+            else:
+                img_rgb_flip, bbox_xywh_flip = flip_color_and_bbox(img_rgb, bbox_xywh, np.array([self.W, self.H]))
+                fake_contact_result = self.contact_estimator.predict_contact(img_rgb_flip, bbox_xywh_flip)
+                contact_result = flip_contact_result_right_to_left(fake_contact_result)
+            # debug
+            # cv2.imwrite(f"debug/{img_idx}_{hand_side}.png", contact_result['crop_img'])
+            contact_outputs = contact_result['raw_outputs']
+            contact_logits = contact_outputs['contact_joint_out'][0].cpu().numpy()
+            # <<< Hand2Gripper <<< #
+            
             # Create frame with validated pose data
             frame_data = HandFrame(
                 frame_idx=img_idx,
@@ -251,6 +297,9 @@ class HandBaseProcessor(BaseProcessor):
                 img_hamer=processed_data["img_hamer"],
                 kpts_2d=processed_data["kpts_2d"],
                 kpts_3d=processed_data["kpts_3d"],
+                # >>> Hand2Gripper >>>
+                contact_logits=contact_logits,
+                # <<< Hand2Gripper <<<
             )
 
             return frame_data

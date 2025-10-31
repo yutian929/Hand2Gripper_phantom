@@ -1,5 +1,6 @@
 import numpy as np
 import numpy.typing as npt
+from typing import List
 
 def get_bbox_center(bbox: np.ndarray) -> np.ndarray:
     """Calculate center point of bounding box."""
@@ -34,5 +35,9 @@ def get_bbox_center_min_dist_to_edge(bboxes: npt.NDArray[np.float32], W: int, H:
         center_min_dist_to_edge_list.append(min_dist_to_edge)
     return np.array(center_min_dist_to_edge_list)
 
-
-
+# >>> Hand2Gripper >>> #
+def xyxy_to_xywh(bbox: np.ndarray) -> np.ndarray:
+    """Convert bbox from xyxy format to xywh format."""
+    assert bbox.shape == (4,), "BBox must be of shape (4,)"
+    xywh_bbox = np.array([bbox[0], bbox[1], bbox[2]-bbox[0], bbox[3]-bbox[1]])
+    return xywh_bbox

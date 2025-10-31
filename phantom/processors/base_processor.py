@@ -18,7 +18,7 @@ class BaseProcessor:
     def __init__(self, cfg: DictConfig): 
         # Store configuration for potential future use
         self.cfg = cfg
-        
+
         # Apply configuration to instance attributes
         self._apply_config(cfg)
         
