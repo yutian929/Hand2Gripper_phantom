@@ -20,7 +20,10 @@ CHECKING_EXISTING = True
 class Hand2GripperLabel:
     """
     """
-    crop_rgb_img: np.ndarray      # Cropped RGB image (H, W, 3)
+    img_rgb: np.ndarray       # Full RGB image (H, W, 3)
+    bbox: np.ndarray         # Hand bounding box (4,)
+    crop_img_rgb: np.ndarray      # Cropped RGB image (256, 256, 3)
+    kpts_2d: np.ndarray     # 2D keypoints (21, 2)
     kpts_3d: np.ndarray     # 2D keypoints (21, 3)
     is_right: np.ndarray      # Is right hand flag (bool)
     contact_logits: np.ndarray  # Contact logits (21,)
@@ -54,43 +57,51 @@ class Hand2GripperAnnotator(BaseProcessor):
 
         # Load hand sequence data for both hands
         left_sequence, right_sequence = self._load_sequences(paths)
+        # Load bounding box data
+        bbox_data = np.load(paths.bbox_data)
 
         # Handle bimanual processing mode
-        self._process_bimanual(left_sequence, right_sequence, imgs_rgb, paths)
+        self._process_bimanual(left_sequence, right_sequence, imgs_rgb, bbox_data, paths)
 
-    def _process_bimanual(self, left_sequence: HandSequence, right_sequence: HandSequence, imgs_rgb: List[np.ndarray], paths) -> None:
+    def _process_bimanual(self, left_sequence: HandSequence, right_sequence: HandSequence, imgs_rgb: List[np.ndarray], bbox_data: np.ndarray, paths) -> None:
         """
         """
         # Process both hand sequences
         assert len(left_sequence.frame_indices) == len(right_sequence.frame_indices) == len(imgs_rgb), "Frame count mismatch among left hand, right hand, and RGB images."
-        self._process_single_arm("left", left_sequence, imgs_rgb, paths)
-        self._process_single_arm("right", right_sequence, imgs_rgb, paths)
+        assert len(bbox_data['left_bboxes']) == len(bbox_data['right_bboxes']) == len(imgs_rgb), "Frame count mismatch among bounding boxes and RGB images."
+        self._process_single_arm("left", left_sequence, imgs_rgb, bbox_data['left_bboxes'], paths)
+        self._process_single_arm("right", right_sequence, imgs_rgb, bbox_data['right_bboxes'], paths)
 
-    def _process_single_arm(self, hand_side: str, hand_sequence: HandSequence, imgs_rgb: List[np.ndarray], paths) -> None:
+    def _process_single_arm(self, hand_side: str, hand_sequence: HandSequence, imgs_rgb: List[np.ndarray], bbox_sequence: np.ndarray, paths) -> None:
         """
         """
         for frame_indice in tqdm.tqdm(range(len(hand_sequence.frame_indices)), desc=f"Labeling {hand_side} hand"):
             if CHECKING_EXISTING and self._check_label(hand_side, frame_indice, paths):
                 continue  # Skip if label already exists
-
+            
             # Extract data for current frame
             hand_detected = hand_sequence.hand_detected[frame_indice]  # (bool)
             if not hand_detected:
                 # Skip frames without detected hand
                 continue
+
+            bbox = bbox_sequence[frame_indice].astype(np.int32)  # (4,)
             kpts_2d = hand_sequence.kpts_2d[frame_indice]  # (21, 2)
             kpts_3d = hand_sequence.kpts_3d[frame_indice]  # (21, 3)
             contact_logits = hand_sequence.contact_logits[frame_indice]  # (21,)
-            crop_rgb_img = hand_sequence.crop_img_rgb[frame_indice]  # (256, 256, 3)
-            img_rgb = np.array(imgs_rgb[frame_indice])  # (H, W, 3)
+            crop_img_rgb = hand_sequence.crop_img_rgb[frame_indice]  # (256, 256, 3)
+            img_rgb = np.array(imgs_rgb[frame_indice]).astype(np.uint8)  # (H, W, 3)
 
             # Select gripper IDs
             window_name = f"{paths.hand2gripper_labels_left}_{frame_indice}" if hand_side == "left" else f"{paths.hand2gripper_labels_right}_{frame_indice}"
-            selected_gripper_blr_ids = self._select_gripper_ids(img_rgb, crop_rgb_img, kpts_2d, contact_logits, hand_side, window_name)
+            selected_gripper_blr_ids = self._select_gripper_ids(img_rgb, crop_img_rgb, kpts_2d, contact_logits, hand_side, window_name)
 
             # Create Hand2GripperLabel
             label = Hand2GripperLabel(
-                crop_rgb_img=crop_rgb_img,
+                img_rgb=img_rgb,
+                crop_img_rgb=crop_img_rgb,
+                bbox=bbox,
+                kpts_2d=kpts_2d,
                 kpts_3d=kpts_3d,
                 is_right=np.array([hand_side == "right"]).astype(np.bool_),
                 contact_logits=contact_logits,
@@ -135,7 +146,10 @@ class Hand2GripperAnnotator(BaseProcessor):
 
         np.savez(
             save_path,
-            crop_rgb_img=label.crop_rgb_img,  # (256, 256, 3)
+            img_rgb=label.img_rgb,  # (H, W, 3)
+            bbox=label.bbox,  # (4,)
+            crop_img_rgb=label.crop_img_rgb,  # (256, 256, 3)
+            kpts_2d=label.kpts_2d,  # (21, 2)
             kpts_3d=label.kpts_3d,  # (21, 3)
             is_right=label.is_right,  # (1,)
             contact_logits=label.contact_logits,  # (21,)
@@ -168,13 +182,13 @@ class Hand2GripperAnnotator(BaseProcessor):
         
         return cv2.resize(img_to_resize, (new_width, target_height), interpolation=cv2.INTER_AREA)
 
-    def _select_gripper_ids(self, img_rgb: np.ndarray, crop_rgb_img: np.ndarray, kpts_2d: np.ndarray, contact_logits: np.ndarray, hand_side: str, window_name: str) -> np.ndarray:
+    def _select_gripper_ids(self, img_rgb: np.ndarray, crop_img_rgb: np.ndarray, kpts_2d: np.ndarray, contact_logits: np.ndarray, hand_side: str, window_name: str) -> np.ndarray:
         """
         Select gripper bottom-left-right IDs based on hand keypoints and contact logits.
 
         Args:
             img_rgb (np.ndarray): Full RGB image (H, W, 3)
-            crop_rgb_img (np.ndarray): Cropped RGB image (256, 256, 3)
+            crop_img_rgb (np.ndarray): Cropped RGB image (256, 256, 3)
             kpts_2d (np.ndarray): 2D keypoints (21, 2)
             contact_logits (np.ndarray): Contact logits (21,)
             hand_side (str): The hand side ("left" or "right")
@@ -185,7 +199,7 @@ class Hand2GripperAnnotator(BaseProcessor):
         # --- Prepare base images ---
         UI_left_image = img_rgb.copy()
         UI_middle_image_base = vis_hand_2D_skeleton_without_bbox(img_rgb.copy(), kpts_2d, is_right=(hand_side=="right"))
-        UI_right_image_orig = crop_rgb_img.copy()
+        UI_right_image_orig = crop_img_rgb.copy()
         
         # --- Resize images to the same height ---
         target_height = UI_left_image.shape[0]

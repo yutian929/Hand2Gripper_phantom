@@ -19,4 +19,7 @@
 [submodule "submodules/Hand2Gripper_HACO"]
 	path = submodules/Hand2Gripper_HACO
 	url = https://github.com/yutian929/Hand2Gripper_HACO.git
+[submodule "submodules/Hand2Gripper_hand2gripper"]
+	path = submodules/Hand2Gripper_hand2gripper
+	url = https://github.com/yutian929/Hand2Gripper_hand2gripper.git
 
