@@ -1,41 +1,20 @@
-"""
-Hand2Gripper Annotator Module
-
-This module processes hand motion capture data and converts it into robot-executable actions.
-It handles both single-arm and bimanual robotic setups, converting detected hand keypoints
-into end-effector positions, orientations, and gripper widths that can be used for robot control.
-
-Key Features:
-- Converts hand keypoints from camera frame to robot frame
-- Supports both unconstrained and physically constrained hand models
-- Handles missing hand detections with interpolation
-- Processes bimanual data with union-based frame selection
-- Generates neutral poses when no hand data is available
-
-The processor follows this pipeline:
-1. Load hand sequence data (keypoints, detection flags)
-2. Convert keypoints to robot coordinate frame
-3. Apply hand model constraints (optional)
-4. Extract end-effector poses and gripper states
-5. Refine actions to handle missing detections
-6. Save processed actions for robot execution
-"""
-
 import os
+import cv2
 import numpy as np
 from typing import Tuple, Optional
 from dataclasses import dataclass
 import logging
 import mediapy as media
-from scipy.spatial.transform import Rotation
 from typing import List
+import tqdm
 
 from phantom.processors.base_processor import BaseProcessor
 from phantom.processors.phantom_data import HandSequence
-from phantom.processors.paths import Paths
-from phantom.hand import HandModel, PhysicallyConstrainedHandModel, get_list_finger_pts_from_skeleton
+from phantom.utils.hand2gripper_visualize import vis_hand_2D_skeleton_without_bbox, vis_selected_gripper
 
 logger = logging.getLogger(__name__)
+
+CHECKING_EXISTING = True
 
 @dataclass
 class Hand2GripperLabel:
@@ -45,21 +24,14 @@ class Hand2GripperLabel:
     kpts_3d: np.ndarray     # 2D keypoints (21, 3)
     is_right: np.ndarray      # Is right hand flag (bool)
     contact_logits: np.ndarray  # Contact logits (21,)
-
-@dataclass
-class Hand2GripperLabelSequnence:
-    """
-    """
-    crop_rgb_imgs: np.ndarray      # Cropped RGB images (N, H, W, 3)
-    kpts_3d: np.ndarray     # 2D keypoints (N, 21, 3)
-    is_right: np.ndarray      # Is right hand flag (N, bool)
-    contact_logits: np.ndarray  # Contact logits (N, 21,)
+    selected_gripper_blr_ids: np.ndarray  # Selected gripper bottom-left-right IDs (3,)
 
 class Hand2GripperAnnotator(BaseProcessor):
     """
     """
     def __init__(self, cfg):
         super().__init__(cfg)
+        self.last_chosen_gripper_joints_seq = [0, 0, 0]  # 初始化为无效值
 
     def process_one_demo(self, data_sub_folder: str) -> None:
         """
@@ -74,55 +46,59 @@ class Hand2GripperAnnotator(BaseProcessor):
         """
         save_folder = self.get_save_folder(data_sub_folder)
         paths = self.get_paths(save_folder)
-
+        for dir_path in [paths.hand2gripper_labels_left, paths.hand2gripper_labels_right]:
+            os.makedirs(dir_path, exist_ok=True)
         # Load RGB video frames
         imgs_rgb = media.read_video(getattr(paths, f"video_left"))
         self.H, self.W, _ = imgs_rgb[0].shape
 
         # Load hand sequence data for both hands
         left_sequence, right_sequence = self._load_sequences(paths)
-        breakpoint()
-        # Handle single-arm processing mode
-        if self.bimanual_setup == "single_arm":
-            self._process_single_arm(left_sequence, right_sequence, paths)
-        else:
-            self._process_bimanual(left_sequence, right_sequence, imgs_rgb, paths)
 
-    # def _process_single_arm(self, left_sequence: HandSequence, right_sequence: HandSequence, paths) -> None:
-    #     """Process single-arm setup with one target hand."""
-    #     # Select target hand based on configuration
-    #     target_sequence = left_sequence if self.target_hand == "left" else right_sequence
-        
-    #     # Process the selected hand sequence
-    #     target_actions = self._process_hand_sequence(target_sequence, self.T_cam2robot)
-        
-    #     # Get indices where hand was detected for this sequence
-    #     union_indices = np.where(target_sequence.hand_detected)[0]
-        
-    #     # Refine actions to handle missing detections
-    #     target_actions_refined = self._refine_actions(target_sequence, target_actions, union_indices, self.target_hand)
-        
-    #     # Save results for the selected hand only
-    #     if self.target_hand == "left":
-    #         self._save_results(paths, union_indices=union_indices, left_actions=target_actions_refined)
-    #     else:
-    #         self._save_results(paths, union_indices=union_indices, right_actions=target_actions_refined)
+        # Handle bimanual processing mode
+        self._process_bimanual(left_sequence, right_sequence, imgs_rgb, paths)
 
     def _process_bimanual(self, left_sequence: HandSequence, right_sequence: HandSequence, imgs_rgb: List[np.ndarray], paths) -> None:
-        """"""
+        """
+        """
         # Process both hand sequences
-        left_actions = self._process_hand_sequence(left_sequence, self.T_cam2robot)
-        right_actions = self._process_hand_sequence(right_sequence, self.T_cam2robot)
-        
-        # Combine detection results using OR logic - frame is valid if either hand detected
-        union_indices = np.where(left_sequence.hand_detected | right_sequence.hand_detected)[0]
+        assert len(left_sequence.frame_indices) == len(right_sequence.frame_indices) == len(imgs_rgb), "Frame count mismatch among left hand, right hand, and RGB images."
+        self._process_single_arm("left", left_sequence, imgs_rgb, paths)
+        self._process_single_arm("right", right_sequence, imgs_rgb, paths)
 
-        # Refine actions for both hands using the union indices
-        left_actions_refined = self._refine_actions(left_sequence, left_actions, union_indices, "left")
-        right_actions_refined = self._refine_actions(right_sequence, right_actions, union_indices, "right")
+    def _process_single_arm(self, hand_side: str, hand_sequence: HandSequence, imgs_rgb: List[np.ndarray], paths) -> None:
+        """
+        """
+        for frame_indice in tqdm.tqdm(range(len(hand_sequence.frame_indices)), desc=f"Labeling {hand_side} hand"):
+            if CHECKING_EXISTING and self._check_label(hand_side, frame_indice, paths):
+                continue  # Skip if label already exists
 
-        # Save results for both hands
-        self._save_results(paths, union_indices, left_actions_refined, right_actions_refined)
+            # Extract data for current frame
+            hand_detected = hand_sequence.hand_detected[frame_indice]  # (bool)
+            if not hand_detected:
+                # Skip frames without detected hand
+                continue
+            kpts_2d = hand_sequence.kpts_2d[frame_indice]  # (21, 2)
+            kpts_3d = hand_sequence.kpts_3d[frame_indice]  # (21, 3)
+            contact_logits = hand_sequence.contact_logits[frame_indice]  # (21,)
+            crop_rgb_img = hand_sequence.crop_img_rgb[frame_indice]  # (256, 256, 3)
+            img_rgb = np.array(imgs_rgb[frame_indice])  # (H, W, 3)
+
+            # Select gripper IDs
+            window_name = f"{paths.hand2gripper_labels_left}_{frame_indice}" if hand_side == "left" else f"{paths.hand2gripper_labels_right}_{frame_indice}"
+            selected_gripper_blr_ids = self._select_gripper_ids(img_rgb, crop_rgb_img, kpts_2d, contact_logits, hand_side, window_name)
+
+            # Create Hand2GripperLabel
+            label = Hand2GripperLabel(
+                crop_rgb_img=crop_rgb_img,
+                kpts_3d=kpts_3d,
+                is_right=np.array([hand_side == "right"]).astype(np.bool_),
+                contact_logits=contact_logits,
+                selected_gripper_blr_ids=selected_gripper_blr_ids
+            )
+
+            # Save label to disk
+            self._save_label(label, hand_side, frame_indice, paths)
     
 
     def _load_sequences(self, paths) -> Tuple[HandSequence, HandSequence]:
@@ -142,46 +118,112 @@ class Hand2GripperAnnotator(BaseProcessor):
             HandSequence.load(paths.hand_data_left),
             HandSequence.load(paths.hand_data_right)
         )
- 
 
-    # def _save_results(
-    #     self, 
-    #     paths: Paths, 
-    #     union_indices: np.ndarray,
-    #     left_actions: Optional[EEActions] = None,
-    #     right_actions: Optional[EEActions] = None,
-    # ) -> None:
-    #     """
-    #     Save processed action results to disk in NPZ format.
-        
-    #     The saved files contain all necessary data for robot execution:
-    #     - union_indices: Valid frame indices in the original sequence
-    #     - ee_pts: End-effector positions
-    #     - ee_oris: End-effector orientations (rotation matrices)
-    #     - ee_widths: Gripper opening widths
-        
-    #     Args:
-    #         paths (Paths): File path configuration object
-    #         union_indices (np.ndarray): Valid frame indices
-    #         left_actions (Optional[EEActions]): Left hand actions to save
-    #         right_actions (Optional[EEActions]): Right hand actions to save
-    #     """
-    #     # Create output directory if it doesn't exist
-    #     os.makedirs(paths.action_processor, exist_ok=True)
-        
-    #     # Save actions for each hand if provided
-    #     if left_actions is not None:
-    #         self._save_hand_actions(paths.actions_left, union_indices, left_actions)
-    #     if right_actions is not None:
-    #         self._save_hand_actions(paths.actions_right, union_indices, right_actions)
+    def _save_label(self, label: Hand2GripperLabel, hand_side: str, frame_indice: int, paths) -> None:
+        """
+        Save Hand2GripperLabel to disk.
 
-    # def _save_hand_actions(self, base_path: str, union_indices: np.ndarray, actions: EEActions) -> None:
-    #     """Save actions for a single hand to NPZ file."""
-    #     file_path = str(base_path).split(".npz")[0] + f"_{self.bimanual_setup}.npz"
-    #     np.savez(
-    #         file_path,
-    #         union_indices=union_indices,
-    #         ee_pts=actions.ee_pts,
-    #         ee_oris=actions.ee_oris,
-    #         ee_widths=actions.ee_widths
-    #     )
+        Args:
+            label (Hand2GripperLabel): The label data to save
+            hand_side (str): The hand side ("left" or "right")
+            frame_indice (int): The frame index
+        """
+        if hand_side == "left":
+            save_path = paths.hand2gripper_labels_left / f"{frame_indice}.npz"
+        else:
+            save_path = paths.hand2gripper_labels_right / f"{frame_indice}.npz"
+
+        np.savez(
+            save_path,
+            crop_rgb_img=label.crop_rgb_img,  # (256, 256, 3)
+            kpts_3d=label.kpts_3d,  # (21, 3)
+            is_right=label.is_right,  # (1,)
+            contact_logits=label.contact_logits,  # (21,)
+            selected_gripper_blr_ids=label.selected_gripper_blr_ids  # (3,)
+        )
+    
+    def _check_label(self, hand_side: str, frame_indice: int, paths) -> bool:
+        """
+        Check if Hand2GripperLabel already exists on disk.
+        Args:
+            hand_side (str): The hand side ("left" or "right")
+            frame_indice (int): The frame index
+        Returns:
+            bool: True if label file exists, False otherwise
+        """
+        if hand_side == "left":
+            save_path = paths.hand2gripper_labels_left / f"{frame_indice}.npz"
+        else:
+            save_path = paths.hand2gripper_labels_right / f"{frame_indice}.npz"
+        return os.path.exists(save_path)
+
+    def _resize_image_to_match_height(self, img_to_resize: np.ndarray, target_height: int) -> np.ndarray:
+        """Resizes an image to a target height while maintaining aspect ratio."""
+        original_height, original_width, _ = img_to_resize.shape
+        if original_height == target_height:
+            return img_to_resize
+        
+        aspect_ratio = original_width / original_height
+        new_width = int(target_height * aspect_ratio)
+        
+        return cv2.resize(img_to_resize, (new_width, target_height), interpolation=cv2.INTER_AREA)
+
+    def _select_gripper_ids(self, img_rgb: np.ndarray, crop_rgb_img: np.ndarray, kpts_2d: np.ndarray, contact_logits: np.ndarray, hand_side: str, window_name: str) -> np.ndarray:
+        """
+        Select gripper bottom-left-right IDs based on hand keypoints and contact logits.
+
+        Args:
+            img_rgb (np.ndarray): Full RGB image (H, W, 3)
+            crop_rgb_img (np.ndarray): Cropped RGB image (256, 256, 3)
+            kpts_2d (np.ndarray): 2D keypoints (21, 2)
+            contact_logits (np.ndarray): Contact logits (21,)
+            hand_side (str): The hand side ("left" or "right")
+
+        Returns:
+            np.ndarray: Selected gripper IDs (3,)
+        """
+        # --- Prepare base images ---
+        UI_left_image = img_rgb.copy()
+        UI_middle_image_base = vis_hand_2D_skeleton_without_bbox(img_rgb.copy(), kpts_2d, is_right=(hand_side=="right"))
+        UI_right_image_orig = crop_rgb_img.copy()
+        
+        # --- Resize images to the same height ---
+        target_height = UI_left_image.shape[0]
+        UI_middle_image_base = self._resize_image_to_match_height(UI_middle_image_base, target_height)
+        UI_right_image_resized = self._resize_image_to_match_height(UI_right_image_orig, target_height)
+
+        # --- Create the initial combined image ---
+        UI_base_images = np.concatenate([UI_left_image, UI_middle_image_base, UI_right_image_resized], axis=1)
+        
+        gripper_joints_seq = []
+        while True:
+            cv2.imshow(window_name, cv2.cvtColor(UI_base_images, cv2.COLOR_RGB2BGR))
+            cv2.waitKey(100)
+            try:
+                user_input = input(f"Enter the gripper joints sequence (3 integers separated by blank, last chosen(Base, Left, Right): {self.last_chosen_gripper_joints_seq}): ")
+                if user_input == '':
+                    gripper_joints_seq = self.last_chosen_gripper_joints_seq
+                else:
+                    gripper_joints_seq = [int(x) for x in user_input.split(' ')]
+                
+                if len(gripper_joints_seq) != 3 or not all(0 <= joint_id <= 20 for joint_id in gripper_joints_seq):
+                    print("Invalid input. Please enter 3 joint IDs (base, left, right) between 0 and 20 (e.g., 1 2 3).")
+                    continue
+                
+                # Draw on a copy of the base middle image for confirmation
+                UI_middle_image_confirm = vis_selected_gripper(UI_middle_image_base.copy(), kpts_2d, np.array(gripper_joints_seq))
+                UI_selected_images = np.concatenate([UI_left_image, UI_middle_image_confirm, UI_right_image_resized], axis=1)
+                cv2.imshow(window_name, cv2.cvtColor(UI_selected_images, cv2.COLOR_RGB2BGR))
+                cv2.waitKey(100)
+
+                confirm = input("Confirm the selection? (y/n or press Enter): ").lower().strip()
+                if confirm in ['', 'y', 'yes']:
+                    self.last_chosen_gripper_joints_seq = gripper_joints_seq
+                    break
+                print("Selection cancelled. Please try again.")
+                
+            except ValueError:
+                print("Invalid input. Please enter 3 integers (base, left, right) separated by blank (e.g., 1 2 3).")
+        
+        cv2.destroyWindow(window_name)
+        return np.array(gripper_joints_seq).astype(np.int32)

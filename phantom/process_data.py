@@ -10,6 +10,10 @@ from phantom.processors.base_processor import BaseProcessor
 
 logging.basicConfig(level=logging.WARNING, format="%(name)s - %(levelname)s - %(message)s")
 
+# >>> Hand2Gripper >>> #
+import torch  # Add torch import
+# <<< Hand2Gripper <<< #
+
 class ProcessingMode(Enum):
     """Enumeration of valid processing modes."""
     BBOX = "bbox"
@@ -113,8 +117,8 @@ def process_all_demos(cfg: DictConfig, processor_classes: dict) -> None:
     for mode in selected_modes:
         print(f"----------------- {mode.upper()} PROCESSOR -----------------")
         # >>> Hand2Gripper >>> #
-        if mode.upper() in ('BBOX'):
-            continue
+        # if mode.upper() in ('BBOX'):
+        #     continue
         # <<< Hand2Gripper <<< #
         processor_cls = processor_classes[mode]
         processor = processor_cls(cfg)
@@ -125,6 +129,12 @@ def process_all_demos(cfg: DictConfig, processor_classes: dict) -> None:
                 print(f"Error in {mode} processing: {e}")
                 if cfg.debug:
                     raise
+        # >>> Hand2Gripper >>> #
+        # Clear GPU cache after each processing mode
+        del processor
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        # <<< Hand2Gripper <<< #
 
 def process_all_demos_parallel(cfg: DictConfig, processor_classes: dict) -> None:
     # Choose processing order based on epic flag
@@ -228,7 +238,7 @@ def main(cfg: DictConfig):
     else:
         process_all_demos(cfg, processor_classes)
 
-@hydra.main(version_base=None, config_path="../configs", config_name="default")
+@hydra.main(version_base=None, config_path="../configs", config_name="epic")  # >>> Hand2Gripper >>> #
 def hydra_main(cfg: DictConfig):
     """
     Main entry point using Hydra configuration.

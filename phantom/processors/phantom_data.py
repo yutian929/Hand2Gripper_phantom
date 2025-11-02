@@ -231,7 +231,7 @@ class HandFrame:
             kpts_3d=np.zeros((21, 3)),
             # >>> Hand2Gripper >>> #
             contact_logits=np.zeros((21,)),
-            crop_img_rgb=np.zeros_like(img_rgb),
+            crop_img_rgb=np.zeros((256, 256, 3), dtype=np.uint8),
             # <<< Hand2Gripper <<< #
         )
 
@@ -275,6 +275,7 @@ class HandSequence(LazyLoadingMixin):
             'frame_indices': self.frame_indices,
             # >>> Hand2Gripper >>> #
             'contact_logits': self.contact_logits,
+            'crop_img_rgb': self.crop_img_rgb,
             # <<< Hand2Gripper <<< #
         }
         
@@ -341,7 +342,7 @@ class HandSequence(LazyLoadingMixin):
         )
     
     @property
-    def crop_imgs_rgb(self) -> np.ndarray:
+    def crop_img_rgb(self) -> np.ndarray:
         """Lazy loading of all cropped RGB images"""
         return self._get_cached_property(
             '_crop_img_rgb',

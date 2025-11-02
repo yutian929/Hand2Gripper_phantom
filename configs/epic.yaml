@@ -11,7 +11,7 @@ hand2gripper_annotation_data_root_dir: "../data/hand2gripper_annotations/"
 demo_name: "epic"
 
 # Processing settings
-mode: ["bbox"]  # Default processing mode
+mode: ["all"]  # Default processing mode
 demo_num: null  # Process specific demo number (null = process all videos in the root folder)
 
 # Additional settings

@@ -219,7 +219,7 @@ class HandBaseProcessor(BaseProcessor):
         """
         sequence = HandSequence()
 
-        for img_idx in tqdm(range(len(imgs_rgb)), disable=False, leave=False):
+        for img_idx in tqdm(range(len(imgs_rgb)), disable=False, leave=False, desc=f"Processing {hand_side} hand"):
             if not hand_detections[img_idx]:
                 # Create empty frame for missing detections
                 sequence.add_frame(HandFrame.create_empty_frame(
@@ -287,7 +287,8 @@ class HandBaseProcessor(BaseProcessor):
             # cv2.imwrite(f"debug/{img_idx}_{hand_side}.png", contact_result['crop_img'])
             contact_outputs = contact_result['raw_outputs']
             contact_logits = contact_outputs['contact_joint_out'][0].cpu().numpy()
-            crop_img_rgb = contact_result['crop_img']
+            crop_img_rgb = contact_result['crop_img'].astype(np.uint8)
+            crop_img_rgb = cv2.cvtColor(crop_img_rgb, cv2.COLOR_BGR2RGB)
             # <<< Hand2Gripper <<< #
             
             # Create frame with validated pose data

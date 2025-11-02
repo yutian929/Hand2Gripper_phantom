@@ -204,7 +204,7 @@ def vis_hand_2D_skeleton_contact(image: np.ndarray, joints_2d: np.ndarray, bbox:
             cv2.circle(vis_image, (int(joints_2d[i][0]), int(joints_2d[i][1])), 3, contact_color, -1)
     return vis_image
 
-def vis_choose_gripper(image: np.ndarray, joints_2d: np.ndarray, base_left_right_joint_ids: np.array, gripper_color: Tuple[int, int, int] = (0, 255, 0)) -> np.ndarray:
+def vis_selected_gripper(image: np.ndarray, joints_2d: np.ndarray, base_left_right_joint_ids: np.array, gripper_color: Tuple[int, int, int] = (255, 0, 0)) -> np.ndarray:
     """
     在图像上可视化选择gripper
     """

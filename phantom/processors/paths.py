@@ -86,6 +86,8 @@ class Paths:
         # >>> Hand2Gripper >>> #
         # hand2gripper annotator processor
         self.hand2gripper_annotator_processor = self.data_path / "hand2gripper_annotator_processor"
+        self.hand2gripper_labels_left = self.hand2gripper_annotator_processor / "left"
+        self.hand2gripper_labels_right = self.hand2gripper_annotator_processor / "right"
         # <<< Hand2Gripper <<< #
 
     def _setup_original_images(self):
