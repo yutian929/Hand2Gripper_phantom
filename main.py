@@ -1,4 +1,97 @@
+def test_hand2gripper():
+    """
+    测试 Hand2Gripper 模型的完整推理流程。
+    """
+    # 1. 导入推理模块
+    # 将其放在函数内部，以避免在运行其他测试时产生不必要的导入
+    import os
+    import numpy as np
+    import cv2
+    import torch
+    from hand2gripper.inference import Hand2GripperInference
 
+    # 2. 定义路径和参数 (替换 argparse)
+    checkpoint_path = "submodules/Hand2Gripper_hand2gripper/hand2gripper/hand2gripper.pt"
+    input_path = "/home/yutian/projs/Hand2Gripper_phantom/data/processed/epic/0/hand2gripper_annotator_processor/left/50.npz"
+    output_path = "test_hand2gripper_output.png"
+
+    # 3. 检查文件是否存在
+    if not os.path.exists(checkpoint_path):
+        print(f"错误: 找不到模型权重文件: {checkpoint_path}")
+        return
+    if not os.path.exists(input_path):
+        print(f"错误: 找不到输入数据文件: {input_path}")
+        return
+
+    # 4. 设置设备
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # 5. 初始化推理引擎
+    print("正在初始化 Hand2Gripper 推理引擎...")
+    try:
+        inference_engine = Hand2GripperInference(checkpoint_path, device=device)
+    except Exception as e:
+        print(f"初始化模型时出错: {e}")
+        return
+
+    # 6. 加载数据
+    print(f"正在从 {input_path} 加载数据...")
+    try:
+        data = np.load(input_path, allow_pickle=True)
+        color_np = data["img_rgb"]
+        bbox_np = data["bbox"]
+        kpts_3d_np = data["kpts_3d"]
+        contact_np = data["contact_logits"]
+        is_right_np = data["is_right"]
+        kpts_2d_np = data["kpts_2d"]  # 用于可视化
+    except Exception as e:
+        print(f"加载数据时出错。请确保 {input_path} 是一个有效的 .npz 文件并包含所需键。错误: {e}")
+        return
+
+    # 7. 执行推理
+    print("正在执行推理...")
+    pred_triple = inference_engine.predict(
+        color=color_np,
+        bbox=bbox_np,
+        keypoints_3d=kpts_3d_np,
+        contact=contact_np,
+        is_right=is_right_np
+    )
+
+    # 8. 打印结果
+    print("\n" + "="*30)
+    print("      推理结果")
+    print("="*30)
+    print(f"预测的抓手三元组 (Base, Left, Right): {pred_triple}")
+    print(f"  - Base 关节点 ID:  {pred_triple[0]}")
+    print(f"  - Left 关节点 ID:  {pred_triple[1]}")
+    print(f"  - Right 关节点 ID: {pred_triple[2]}")
+    print("="*30)
+
+    # 9. 可视化并保存结果
+    print(f"\n正在生成可视化结果并保存到 {output_path}...")
+    
+    # 准备用于 OpenCV 的图像 (HWC, uint8, BGR)
+    if color_np.dtype != np.uint8:
+        vis_img = (color_np).astype(np.uint8)
+    else:
+        vis_img = color_np.copy()
+    
+    if vis_img.shape[0] == 3:  # CHW -> HWC
+        vis_img = np.transpose(vis_img, (1, 2, 0))
+    
+    # RGB -> BGR for OpenCV
+    vis_img = cv2.cvtColor(vis_img, cv2.COLOR_RGB2BGR)
+
+    # 绘制结果
+    vis_img_result = inference_engine.vis_output(vis_img, kpts_2d_np, pred_triple)
+    
+    # 保存图像
+    try:
+        cv2.imwrite(output_path, vis_img_result)
+        print(f"可视化结果已成功保存。")
+    except Exception as e:
+        print(f"保存可视化结果时出错: {e}")
 
 
 def test_haco():
@@ -150,4 +243,4 @@ def test_wilor_hand_pose3d_estimation_pipeline_hand_detection():
 
 
 if __name__ == "__main__":
-    test_haco()
+    test_hand2gripper()

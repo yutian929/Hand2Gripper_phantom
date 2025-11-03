@@ -67,6 +67,11 @@ cd submodules/Hand2Gripper_HACO/
 pip install -r requirements.txt
 pip install -e .
 cd ../..
+
+# Hand2Gripper hand2gripper
+cd submodules/Hand2Gripper_hand2gripper/
+pip install -e .
+cd ../..
 # <<< Hand2Gripper <<< #
 
 
