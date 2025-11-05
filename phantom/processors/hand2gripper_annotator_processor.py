@@ -94,6 +94,7 @@ class Hand2GripperAnnotator(BaseProcessor):
 
             # Select gripper IDs
             window_name = f"{paths.hand2gripper_labels_left}_{frame_indice}" if hand_side == "left" else f"{paths.hand2gripper_labels_right}_{frame_indice}"
+            # selected_gripper_blr_ids = np.array([0, 4, 8]) if hand_side == "right" else np.array([0, 8, 4])
             selected_gripper_blr_ids = self._select_gripper_ids(img_rgb, crop_img_rgb, kpts_2d, contact_logits, hand_side, window_name)
 
             # Create Hand2GripperLabel

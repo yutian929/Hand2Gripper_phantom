@@ -35,6 +35,10 @@ from phantom.hand import HandModel, PhysicallyConstrainedHandModel, get_list_fin
 
 logger = logging.getLogger(__name__)
 
+# >>> Hand2Gripper >>>
+import mediapy as media
+# <<< Hand2Gripper <<<
+
 @dataclass
 class EEActions:
     """
@@ -101,11 +105,99 @@ class ActionProcessor(BaseProcessor):
         # Load hand sequence data for both hands
         left_sequence, right_sequence = self._load_sequences(paths)
 
+        # >>> Hand2Gripper >>>
+        # Load RGB video frames
+        imgs_rgb = media.read_video(getattr(paths, f"video_left"))
+        self.H, self.W, _ = imgs_rgb[0].shape
+        # Load bounding box data
+        bbox_data = np.load(paths.bbox_data)
+        # <<< Hand2Gripper <<<
+
         # Handle single-arm processing mode
         if self.bimanual_setup == "single_arm":
             self._process_single_arm(left_sequence, right_sequence, paths)
         else:
-            self._process_bimanual(left_sequence, right_sequence, paths)
+            # >>> Hand2Gripper >>>
+            # Origin
+            # self._process_bimanual(left_sequence, right_sequence, paths)
+            self._process_bimanual_hand2gripper(left_sequence, right_sequence, paths, imgs_rgb, bbox_data)
+            # <<< Hand2Gripper <<<
+
+    # >>> Hand2Gripper >>>
+    def _process_bimanual_hand2gripper(
+        self, 
+        left_sequence: HandSequence, 
+        right_sequence: HandSequence, 
+        paths,
+        imgs_rgb: np.ndarray,
+        bbox_data: np.ndarray
+    ) -> None:
+        # Process both hand sequences
+        assert len(left_sequence.frame_indices) == len(right_sequence.frame_indices) == len(imgs_rgb), "Frame count mismatch among left hand, right hand, and RGB images."
+        assert len(bbox_data['left_bboxes']) == len(bbox_data['right_bboxes']) == len(imgs_rgb), "Frame count mismatch among bounding boxes and RGB images."
+        
+        left_actions = self._process_hand_sequence_hand2gripper(left_sequence, self.T_cam2robot, imgs_rgb, bbox_data['left_bboxes'], "left")
+        right_actions = self._process_hand_sequence_hand2gripper(right_sequence, self.T_cam2robot, imgs_rgb, bbox_data['right_bboxes'], "right")
+
+        # Combine detection results using OR logic - frame is valid if either hand detected
+        union_indices = np.where(left_sequence.hand_detected | right_sequence.hand_detected)[0]
+
+        # Refine actions for both hands using the union indices
+        left_actions_refined = self._refine_actions(left_sequence, left_actions, union_indices, "left")
+        right_actions_refined = self._refine_actions(right_sequence, right_actions, union_indices, "right")
+
+        # Save results for both hands
+        self._save_results(paths, union_indices, left_actions_refined, right_actions_refined)
+    
+    def _process_hand_sequence_hand2gripper(
+        self, 
+        sequence: HandSequence, 
+        T_cam2robot: np.ndarray,
+        imgs_rgb: np.ndarray,
+        bboxes: np.ndarray,
+        hand_side: str
+    ) -> EEActions:
+        """
+        """
+        # Convert keypoints from camera frame to robot frame coordinates
+        kpts_3d_cf = sequence.kpts_3d  # Camera frame keypoints
+        kpts_3d_rf = ActionProcessor._convert_pts_to_robot_frame(
+            kpts_3d_cf, 
+            T_cam2robot
+        )
+
+        # Create and fit hand model to the keypoint sequence
+        hand_model = self._get_hand_model_hand2gripper(kpts_3d_rf, sequence.hand_detected, imgs_rgb, bboxes, sequence.contact_logits, hand_side, kpts_3d_cf)
+        
+        return EEActions(
+            ee_pts=np.array(hand_model.ee_pts),
+            ee_oris=np.array(hand_model.ee_oris),
+            ee_widths=np.array(hand_model.ee_widths),
+        )
+
+    def _get_hand_model_hand2gripper(self, kpts_3d_rf: np.ndarray, hand_detected: np.ndarray, imgs_rgb: np.ndarray, bboxes: np.ndarray, contact_logits: np.array, hand_side: str, kpts_3d_cf:np.array) -> HandModel | PhysicallyConstrainedHandModel:
+        """
+        """
+        # Choose hand model type based on configuration
+        if self.constrained_hand:
+            hand_model = PhysicallyConstrainedHandModel(self.robot)
+        else:
+            hand_model = HandModel(self.robot)
+        
+        # Add each frame to the model for trajectory fitting
+        for t_idx in range(len(kpts_3d_rf)):
+            hand_model.add_frame_hand2gripper(
+                kpts_3d_rf[t_idx], 
+                t_idx * self.dt,  # Convert frame index to time
+                hand_detected[t_idx],
+                np.array(imgs_rgb[t_idx]).astype(np.uint8),
+                bboxes[t_idx],
+                contact_logits[t_idx],
+                hand_side,
+                kpts_3d_cf[t_idx]
+            )
+        return hand_model
+    # <<< Hand2Gripper <<<
 
     def _process_single_arm(self, left_sequence: HandSequence, right_sequence: HandSequence, paths) -> None:
         """Process single-arm setup with one target hand."""

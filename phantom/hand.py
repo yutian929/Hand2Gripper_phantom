@@ -33,6 +33,13 @@ import logging
 from phantom.utils.transform_utils import * 
 logger = logging.getLogger(__name__)
 
+# >>> Hand2Gripper >>>
+import torch
+import os
+from hand2gripper.inference import Hand2GripperInference
+# <<< Hand2Gripper <<<
+
+
 class HandModel:
     """
     Base class for hand kinematic modeling and trajectory analysis.
@@ -151,6 +158,21 @@ class HandModel:
         self.grasp_points: List[np.ndarray] = []        # List of computed grasp points (3D positions)
         self.grasp_oris: List[np.ndarray] = []          # List of grasp orientation matrices (3x3)
         self.timestamps: List[float] = []          # List of timestamps for temporal analysis
+
+        # >>> Hand2Gripper >>>
+        self.ee_pts = []
+        self.ee_oris = []
+        self.ee_widths = []
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        checkpoint_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "../submodules/Hand2Gripper_hand2gripper/hand2gripper/release_checkpoint/l084r048.pt"
+        )
+        if not os.path.exists(checkpoint_path):
+            print(f"Model path {checkpoint_path} doesn't exist.")
+            return
+        self.hand2gripper_inference = Hand2GripperInference(checkpoint_path, device)
+        # <<< Hand2Gripper <<<
 
     def calculate_joint_rotation(self, current_pos: np.ndarray, child_pos: np.ndarray, parent_pos: Optional[np.ndarray] = None) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -367,6 +389,72 @@ class HandModel:
         self.grasp_points.append(grasp_pt)
         self.grasp_oris.append(grasp_ori)
         self.timestamps.append(timestamp)
+    
+    # >>> Hand2Gripper >>>
+    def add_frame_hand2gripper(self, vertices: np.ndarray, timestamp: float, hand_detected: bool, img_rgb: np.array, bbox: np.array, contact_logits: np.array, hand_side: str, kpts_3d_cf) -> None:
+        """
+        Add a new frame of vertex positions and calculate corresponding data.
+        
+        This is the main method for processing hand data over time. It computes
+        grasp points, orientations, and stores all relevant information for
+        the current timestep.
+        
+        Args:
+            vertices: Array of 21 3D vertex positions
+            timestamp: Time of the frame in seconds
+            hand_detected: Whether hand was successfully detected
+        """
+        if len(vertices) != 21:
+            raise ValueError(f"Expected 21 vertices, got {len(vertices)}")
+        
+        # Handle frames without hand detection
+        if not hand_detected: 
+            self.timestamps.append(timestamp)
+            self.ee_pts.append(np.zeros(3))
+            self.ee_oris.append(np.eye(3))
+            self.ee_widths.append(0.0)
+            return
+        
+        # Use Hand2Gripper model to get grasp point and orientation
+        pred_triple = self.hand2gripper_inference.predict(
+            color=img_rgb.astype(np.uint8),
+            bbox=bbox.astype(np.int32),
+            keypoints_3d=kpts_3d_cf.astype(np.float32),
+            contact=contact_logits.astype(np.float32),
+            is_right=np.array([hand_side == "right"], dtype=np.bool_),
+        )
+
+        base_pt = vertices[pred_triple[0]]
+        left_pt = vertices[pred_triple[1]]
+        right_pt = vertices[pred_triple[2]]
+
+        print(f"hand_side: {hand_side}, left_pt: {pred_triple[1]}, right_pt: {pred_triple[2]}")
+
+        # >>> Origin >>>
+        # Calculate grasp point as midpoint between thumb and middle finger tips
+        # Calculate gripper orientation from thumb-index finger configuration
+        # gripper_ori, _ = HandModel.get_gripper_orientation(thumb_tip=vertices[4], index_tip=vertices[8], vertices=vertices, grasp_plane=None)
+        # <<< Origin <<<
+
+        thumb_tip = left_pt if hand_side == "right" else right_pt
+        index_tip = right_pt if hand_side == "right" else left_pt
+
+        gripper_ori, _ = HandModel.get_gripper_orientation(thumb_tip=thumb_tip, index_tip=index_tip, vertices=vertices, grasp_plane=None)
+        # Apply 90-degree rotation to align with robot gripper convention
+        rot_90_deg = Rotation.from_euler('Z', 90, degrees=True).as_matrix()
+        ee_ori = gripper_ori @ rot_90_deg
+        ee_width = np.linalg.norm(right_pt - left_pt)
+
+        # Calculate end-effector point as midpoint between left and right points
+        ee_pt = (right_pt + left_pt) / 2
+
+        # Store all frame data
+        self.ee_pts.append(ee_pt)
+        self.ee_oris.append(ee_ori)
+        self.ee_widths.append(ee_width)
+        self.timestamps.append(timestamp)
+    
+    # <<< Hand2Gripper <<<
 
 
     def get_joint_data(self, joint_idx: int) -> Dict[str, Union[List[float], List[np.ndarray]]]:

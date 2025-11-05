@@ -1,6 +1,10 @@
 import cv2
 import numpy as np
 from typing import List, Tuple
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from mpl_toolkits.mplot3d.art3d import Line3DCollection # <--- 修正: 导入 Line3DCollection
+from matplotlib.colors import Normalize, Colormap
 
 def vis_hand_2D(image: np.ndarray, joints_2d: np.ndarray, bbox: List[float], 
                 is_right: bool, keypoint_color: Tuple[int, int, int] = (0, 255, 0),
@@ -243,3 +247,265 @@ def vis_segmentation(image: np.ndarray, seg_mask: np.ndarray, alpha: float = 0.5
     vis_image = cv2.addWeighted(vis_image, 1 - alpha, colored_mask, alpha, 0)
     
     return vis_image
+
+def _plot_single_trajectory(ax, npz_path: str, trajectory_color: str, label: str):
+    """
+    在给定的 3D 坐标轴上绘制单条末端执行器轨迹。
+    """
+    try:
+        data = np.load(npz_path)
+        ee_pts = data['ee_pts']
+        ee_oris = data['ee_oris']
+        ee_widths = data['ee_widths']
+        print(f"成功加载 '{label}' 数据，共 {len(ee_pts)} 帧。")
+    except Exception as e:
+        print(f"加载文件 '{npz_path}' 失败: {e}")
+        return None, None
+
+    # --- 绘制轨迹线 ---
+    # 使用单一颜色绘制轨迹，而不是根据宽度变化
+    ax.plot(ee_pts[:, 0], ee_pts[:, 1], ee_pts[:, 2], color=trajectory_color, label=label, linewidth=2)
+
+    # --- 在轨迹上绘制姿态坐标系 ---
+    step = max(1, len(ee_pts) // 15)
+    axis_length = 0.005
+
+    for i in range(0, len(ee_pts), step):
+        origin = ee_pts[i]
+        rot_matrix = ee_oris[i]
+        
+        x_axis = rot_matrix[:, 0]
+        y_axis = rot_matrix[:, 1]
+        z_axis = rot_matrix[:, 2]
+        
+        # 仅绘制X轴（接近方向）以保持清晰
+        ax.quiver(origin[0], origin[1], origin[2], x_axis[0], x_axis[1], x_axis[2], length=axis_length, color=trajectory_color, normalize=True)
+
+    # 标记起点和终点
+    ax.scatter(ee_pts[0, 0], ee_pts[0, 1], ee_pts[0, 2], color=trajectory_color, marker='o', s=100, depthshade=False)
+    ax.scatter(ee_pts[-1, 0], ee_pts[-1, 1], ee_pts[-1, 2], color=trajectory_color, marker='x', s=100, depthshade=False)
+    
+    return ee_pts
+
+def visualize_multiple_trajectories(npz_paths: List[str], labels: List[str]):
+    """
+    加载并可视化多个包含末端执行器轨迹的 .npz 文件以进行对比。
+    """
+    if len(npz_paths) != len(labels):
+        raise ValueError("npz_paths 和 labels 的数量必须一致。")
+
+    # 设置 Matplotlib 3D 绘图环境
+    fig = plt.figure(figsize=(14, 10))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    colors = ['blue', 'red', 'green', 'purple', 'orange']
+    all_points = []
+
+    # 循环绘制每条轨迹
+    for i, (path, label) in enumerate(zip(npz_paths, labels)):
+        color = colors[i % len(colors)]
+        points = _plot_single_trajectory(ax, path, color, label)
+        if points is not None:
+            all_points.append(points)
+
+    if not all_points:
+        print("没有成功加载任何轨迹数据，无法生成图像。")
+        return
+
+    # --- 设置图表样式 ---
+    ax.set_xlabel('X (m)')
+    ax.set_ylabel('Y (m)')
+    ax.set_zlabel('Z (m)')
+    ax.set_title('End-Effector Trajectory Comparison')
+
+    # 自动调整坐标轴范围以保证所有内容可见
+    all_points_np = np.concatenate(all_points, axis=0)
+    max_range = np.array([all_points_np[:,0].max()-all_points_np[:,0].min(), 
+                          all_points_np[:,1].max()-all_points_np[:,1].min(), 
+                          all_points_np[:,2].max()-all_points_np[:,2].min()]).max() / 2.0
+    mid_x = (all_points_np[:,0].max()+all_points_np[:,0].min()) * 0.5
+    mid_y = (all_points_np[:,1].max()+all_points_np[:,1].min()) * 0.5
+    mid_z = (all_points_np[:,2].max()+all_points_np[:,2].min()) * 0.5
+    ax.set_xlim(mid_x - max_range, mid_x + max_range)
+    ax.set_ylim(mid_y - max_range, mid_y + max_range)
+    ax.set_zlim(mid_z - max_range, mid_z + max_range)
+
+    ax.legend()
+    plt.grid(True)
+    plt.show()
+
+def analyze_and_correct_trajectory(paths_to_visualize: List[str]):
+        """
+        分析两个轨迹文件之间的坐标系差异，并计算修正矩阵。
+        """
+        # 2. 分析坐标系差异
+        print("\n" + "="*30)
+        print("Analyzing Coordinate System Difference")
+        print("="*30)
+
+        origin_data = np.load(paths_to_visualize[0])
+        hand2gripper_data = np.load(paths_to_visualize[1])
+
+        # --- 使用所有帧的平均值来计算 R_fix，以获得更鲁棒的结果 ---
+        R_origin_all = origin_data['ee_oris']
+        R_hand2gripper_all = hand2gripper_data['ee_oris']
+
+        # 逐帧计算 R_fix 并求和
+        sum_R_fix = np.zeros((3, 3))
+        num_frames = len(R_origin_all)
+        for i in range(num_frames):
+            R_o = R_origin_all[i]
+            R_h = R_hand2gripper_all[i]
+            R_fix_i = R_h.T @ R_o
+            sum_R_fix += R_fix_i
+
+        # 计算平均矩阵
+        avg_R_fix = sum_R_fix / num_frames
+
+        # 平均后的矩阵不一定是正交的，需要通过SVD进行重正交化
+        U, S, Vt = np.linalg.svd(avg_R_fix)
+        R_fix = U @ Vt  # 这就是最接近平均旋转的有效旋转矩阵
+
+        print("Calculated Average Fix Rotation Matrix (R_fix) over all frames:\n", np.round(R_fix, 2))
+
+        # 寻找最接近的90度旋转矩阵
+        # R_fix 的每一列告诉我们，Original 的 (X, Y, Z) 轴在 Hand2Gripper 坐标系中是如何表示的。
+        # 例如, R_fix 的第一列 [c11, c21, c31] 是 Original 的 X 轴在 H2G 坐标系下的坐标。
+        # 如果 c11≈1, c21≈0, c31≈0，说明 Original.X 和 H2G.X 是同一个方向。
+        # 如果 c11≈0, c21≈-1, c31≈0，说明 Original.X 和 H2G.Y 的反方向是同一个方向。
+        
+        axis_map = ['X', 'Y', 'Z']
+        print("\n--- Interpretation ---")
+        print("This matrix describes how to get from 'Hand2Gripper' coords to 'Original' coords.")
+        
+        # 分析 R_fix 的每一列
+        for i in range(3):
+            orig_axis = axis_map[i]
+            col = R_fix[:, i]
+            # 找到绝对值最大的元素，确定是哪个轴
+            dominant_axis_idx = np.argmax(np.abs(col))
+            dominant_axis_val = col[dominant_axis_idx]
+            
+            h2g_axis = axis_map[dominant_axis_idx]
+            direction = "positive" if dominant_axis_val > 0 else "negative"
+            
+            print(f"Original '{orig_axis}' axis corresponds to the {direction} '{h2g_axis}' axis of Hand2Gripper.")
+
+        print("\n--- Suggested Solution ---")
+        print("Based on the analysis, you likely need to apply a fixed rotation.")
+        print("For example, if 'Original X' is 'negative Y' and 'Original Y' is 'positive X',")
+        print("this corresponds to a -90 degree rotation around the Z axis.")
+        print("Please check the interpretation above to determine the exact rotation needed.")
+
+        # 3. 自动计算并应用修正矩阵
+        print("\n" + "="*30)
+        print("Automatically Calculating and Verifying Correction")
+        print("="*30)
+
+        # --- 自动计算修正矩阵 ---
+        R_correction_auto = np.zeros((3, 3))
+        # 遍历 R_fix 的每一列 (代表 Original 的 X, Y, Z 轴)
+        for i in range(3):
+            col = R_fix[:, i]
+            # 找到绝对值最大的元素的索引
+            dominant_axis_idx = np.argmax(np.abs(col))
+            # 获取该元素的符号
+            sign = np.sign(col[dominant_axis_idx])
+            # 在新矩阵的对应位置设置 +1 或 -1
+            R_correction_auto[dominant_axis_idx, i] = sign
+
+        print("Automatically Calculated Correction Matrix (R_correction_auto):\n", R_correction_auto)
+
+        # 应用修正
+        R_hand2gripper_all = hand2gripper_data['ee_oris']
+        R_corrected_all = R_hand2gripper_all @ R_correction_auto
+
+        # 重新计算并打印前几帧的角度差
+        R_origin_all = origin_data['ee_oris']
+        
+        print("\n--- New Orientation Difference after Auto-Correction ---")
+        total_error = 0
+        for i in range(len(R_origin_all)):
+            R_o = R_origin_all[i]
+            R_c = R_corrected_all[i]
+            
+            # 计算两个旋转矩阵之间的角度差
+            delta_R = R_o @ R_c.T
+            # clip a_cos to [-1, 1] to avoid numerical errors
+            trace_val = (np.trace(delta_R) - 1) / 2.0
+            angle_rad = np.arccos(np.clip(trace_val, -1.0, 1.0))
+            angle_deg = np.rad2deg(angle_rad)
+            total_error += angle_deg
+            if i < 5: # 只打印前5帧
+                print(f"Frame {i}: New Difference = {angle_deg:.2f} degrees")
+        
+        avg_error = total_error / len(R_origin_all)
+        print(f"\nAverage difference over all frames: {avg_error:.2f} degrees")
+
+
+        # 可选：将修正后的轨迹保存，用于可视化对比
+        corrected_path = "/tmp/corrected_trajectory.npz"
+        np.savez(
+            corrected_path,
+            ee_pts=hand2gripper_data['ee_pts'],
+            ee_oris=R_corrected_all,
+            ee_widths=hand2gripper_data['ee_widths']
+        )
+        print(f"\nSaved corrected trajectory to {corrected_path}")
+        print("You can now visualize the 'Original' vs 'Corrected' trajectories.")
+
+        # 可视化对比 Original 和 Corrected
+        visualize_multiple_trajectories(
+            [paths_to_visualize[0], corrected_path],
+            ["Original Trajectory", "Corrected Hand2Gripper"]
+        )
+
+
+
+
+if __name__ == '__main__':
+    # 定义要对比的轨迹文件路径和标签
+    paths_to_visualize = [
+        [
+        "/home/yutian/projs/Hand2Gripper_phantom/data/processed_origin/epic/0/smoothing_processor/smoothed_actions_left_shoulders.npz",
+        "/home/yutian/projs/Hand2Gripper_phantom/data/processed/epic/0/smoothing_processor/smoothed_actions_left_shoulders.npz"
+        ],
+        [
+        "/home/yutian/projs/Hand2Gripper_phantom/data/processed_origin/epic/0/smoothing_processor/smoothed_actions_right_shoulders.npz",
+        "/home/yutian/projs/Hand2Gripper_phantom/data/processed/epic/0/smoothing_processor/smoothed_actions_right_shoulders.npz"
+        ],
+        [
+        "/home/yutian/projs/Hand2Gripper_phantom/data/processed_origin/epic/1/smoothing_processor/smoothed_actions_left_shoulders.npz",
+        "/home/yutian/projs/Hand2Gripper_phantom/data/processed/epic/1/smoothing_processor/smoothed_actions_left_shoulders.npz"
+        ],
+        [
+        "/home/yutian/projs/Hand2Gripper_phantom/data/processed_origin/epic/1/smoothing_processor/smoothed_actions_right_shoulders.npz",
+        "/home/yutian/projs/Hand2Gripper_phantom/data/processed/epic/1/smoothing_processor/smoothed_actions_right_shoulders.npz"
+        ],
+    ]
+    
+    labels_for_paths = [
+        [
+        "Original Trajectory 0 left_shoulders",
+        "Hand2Gripper Trajectory 0 left_shoulders"
+        ],
+        [
+        "Original Trajectory 0 right_shoulders",
+        "Hand2Gripper Trajectory 0 right_shoulders"
+        ],
+                [
+        "Original Trajectory 1 left_shoulders",
+        "Hand2Gripper Trajectory 1 left_shoulders"
+        ],
+        [
+        "Original Trajectory 1 right_shoulders",
+        "Hand2Gripper Trajectory 1 right_shoulders"
+        ],
+
+    ]
+
+    # 可视化对比两条轨迹
+    assert len(paths_to_visualize) == len(labels_for_paths)
+    for paths_to_visualize, labels_for_paths in zip(paths_to_visualize, labels_for_paths):
+        visualize_multiple_trajectories(paths_to_visualize, labels_for_paths)
+        analyze_and_correct_trajectory(paths_to_visualize)
