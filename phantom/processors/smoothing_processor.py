@@ -131,11 +131,11 @@ class SmoothingProcessor(BaseProcessor):
         actions_right_path = str(paths.actions_right).split(".npz")[0] + f"_{self.bimanual_setup}.npz"
         actions_left = np.load(actions_left_path, allow_pickle=True)
         actions_right = np.load(actions_right_path, allow_pickle=True)
-
+        
         # Apply position smoothing using Gaussian Process regression
         smoothed_ee_pts_left = self.gaussian_process_smoothing(actions_left["ee_pts"])
         smoothed_ee_pts_right = self.gaussian_process_smoothing(actions_right["ee_pts"])
-
+        
         # Apply rotation smoothing using SLERP with optimized parameters for bimanual coordination
         smoothed_ee_oris_left = self.gaussian_slerp_smoothing(
             actions_left["ee_oris"], sigma=10.0, kernel_size=21

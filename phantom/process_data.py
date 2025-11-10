@@ -121,6 +121,10 @@ def process_all_demos(cfg: DictConfig, processor_classes: dict) -> None:
         #     continue
         # else:
         #     pass
+        if mode.upper() in ('ROBOT_INPAINT PROCESSOR'):
+            pass
+        else:
+            continue
         # <<< Hand2Gripper <<< #
         processor_cls = processor_classes[mode]
         processor = processor_cls(cfg)

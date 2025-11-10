@@ -43,7 +43,7 @@ def main():
     ap.add_argument("--show", action="store_true", help="Show the realtime video")
     args = ap.parse_args()
 
-    out_video = Path(args.output, "video.mp4")
+    out_video = Path(args.output, "video_L.mp4")
     out_depth = Path(args.output, "depth.npy")  # Save all depth frames into this single file
     out_intrinsics = Path(args.output, "camera_intrinsics.json")  # Camera intrinsics output
     out_video.parent.mkdir(parents=True, exist_ok=True)

@@ -19,8 +19,8 @@ debug_cameras: [] # Add other robomimic cameras like sideview, etc. Warning: thi
 
 
 # EPIC-KITCHENS configuration override
-input_resolution: 256
-output_resolution: 256
+input_resolution: 480
+output_resolution: 480
 robot: "Kinova3"
 gripper: "Robotiq85"
 square: false
@@ -30,5 +30,5 @@ target_hand: "both"
 constrained_hand: false
 depth_for_overlay: false
 render: false
-camera_intrinsics: "camera/camera_intrinsics_epic.json"
+camera_intrinsics: "camera/camera_intrinsics_d435.json"
 camera_extrinsics: "camera/camera_extrinsics_ego_bimanual_shoulders.json"

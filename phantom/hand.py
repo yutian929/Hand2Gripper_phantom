@@ -172,6 +172,7 @@ class HandModel:
             print(f"Model path {checkpoint_path} doesn't exist.")
             return
         self.hand2gripper_inference = Hand2GripperInference(checkpoint_path, device)
+        self.last_valid_ee_ori = np.eye(3)
         # <<< Hand2Gripper <<<
 
     def calculate_joint_rotation(self, current_pos: np.ndarray, child_pos: np.ndarray, parent_pos: Optional[np.ndarray] = None) -> Tuple[np.ndarray, np.ndarray]:
@@ -436,23 +437,25 @@ class HandModel:
         # gripper_ori, _ = HandModel.get_gripper_orientation(thumb_tip=vertices[4], index_tip=vertices[8], vertices=vertices, grasp_plane=None)
         # <<< Origin <<<
 
-        thumb_tip = left_pt if hand_side == "right" else right_pt
-        index_tip = right_pt if hand_side == "right" else left_pt
-
-        gripper_ori, _ = HandModel.get_gripper_orientation(thumb_tip=thumb_tip, index_tip=index_tip, vertices=vertices, grasp_plane=None)
-        # Apply 90-degree rotation to align with robot gripper convention
-        rot_90_deg = Rotation.from_euler('Z', 90, degrees=True).as_matrix()
-        ee_ori = gripper_ori @ rot_90_deg
+        ee_pt = (right_pt + left_pt) / 2
         ee_width = np.linalg.norm(right_pt - left_pt)
 
-        # Calculate end-effector point as midpoint between left and right points
-        ee_pt = (right_pt + left_pt) / 2
-
+        if pred_triple[1] == pred_triple[2]:
+            ee_ori = self.last_valid_ee_ori
+        else:
+            thumb_tip = left_pt if hand_side == "right" else right_pt
+            index_tip = right_pt if hand_side == "right" else left_pt
+            gripper_ori, _ = HandModel.get_gripper_orientation(thumb_tip=thumb_tip, index_tip=index_tip, vertices=vertices, grasp_plane=None)
+            # Apply 90-degree rotation to align with robot gripper convention
+            rot_90_deg = Rotation.from_euler('Z', 90, degrees=True).as_matrix()
+            ee_ori = gripper_ori @ rot_90_deg
+    
         # Store all frame data
         self.ee_pts.append(ee_pt)
         self.ee_oris.append(ee_ori)
         self.ee_widths.append(ee_width)
         self.timestamps.append(timestamp)
+        self.last_valid_ee_ori = ee_ori
     
     # <<< Hand2Gripper <<<
 
