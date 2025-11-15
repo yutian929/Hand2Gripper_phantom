@@ -115,10 +115,10 @@ class HandBaseProcessor(BaseProcessor):
                  including depth processing flags and model parameters
         """
         super().__init__(args)
-        self.process_hand_masks: bool = False
+        self.process_hand_masks: bool = True
         self._initialize_detectors()
-        self.hand_mask_processor: Optional[HandSegmentationProcessor] = None
-        self.apply_depth_alignment: bool = False
+        self.hand_mask_processor: Optional[HandSegmentationProcessor] = HandSegmentationProcessor(args) if self.process_hand_masks else None
+        self.apply_depth_alignment: bool = True
 
         # >>> Hand2Gripper >>> #
         # device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -129,6 +129,10 @@ class HandBaseProcessor(BaseProcessor):
             checkpoint_path=os.path.join(os.path.dirname(__file__), '../../', 'submodules/Hand2Gripper_HACO/base_data/release_checkpoint/haco_final_hamer_checkpoint.ckpt'),
             experiment_dir="/tmp/haco_experiment"
         )
+        self.hamer_out_dict: Dict[str, Dict[int, Dict[str, Any]]] = {
+            "left": defaultdict(dict),
+            "right": defaultdict(dict)
+        }
         # <<< Hand2Gripper <<< #
 
 
@@ -187,12 +191,14 @@ class HandBaseProcessor(BaseProcessor):
 
         # Generate hand segmentation masks if enabled
         if self.process_hand_masks:
+            print("Generating hand segmentation masks...")
             self._get_hand_masks(data_sub_folder, left_sequence, right_sequence)
             self.left_masks = np.load(paths.masks_hand_left)
             self.right_masks = np.load(paths.masks_hand_right)
         
         # Apply depth-based pose refinement if enabled
         if self.apply_depth_alignment:
+            print("Applying depth-based pose refinement...")
             left_sequence = self._process_all_frames_depth_alignment(imgs_rgb, left_hand_detected, "left", left_sequence)
             right_sequence = self._process_all_frames_depth_alignment(imgs_rgb, right_hand_detected, "right", right_sequence)
 
@@ -313,6 +319,83 @@ class HandBaseProcessor(BaseProcessor):
                 frame_idx=img_idx,
                 img_rgb=img_rgb,
             )
+
+    def _process_all_frames_depth_alignment(self, imgs_rgb: np.ndarray, hand_detections: np.ndarray, 
+                                    hand_side: str, sequence: Optional[HandSequence] = None) -> HandSequence:
+        """
+        Apply depth-based refinement to all frames in the sequence.
+        
+        This method performs the depth alignment stage of processing, using
+        segmentation masks and depth data to refine the initial HaMeR pose
+        estimates for improved 3D accuracy.
+        
+        Args:
+            imgs_rgb: RGB video frames for reference
+            hand_detections: Boolean flags indicating frames with valid detections
+            hand_side: "left" or "right" specifying which hand to process
+            sequence: HandSequence containing initial pose estimates to refine
+            
+        Returns:
+            HandSequence with refined 3D poses aligned to depth data
+        """
+        for img_idx in tqdm(range(len(imgs_rgb)), disable=False, leave=False):
+            if not hand_detections[img_idx]:
+                continue
+
+            # Apply depth-based refinement to this frame
+            frame_data = sequence.get_frame(img_idx)
+            frame_data.kpts_3d = self._depth_alignment(img_idx, hand_side, imgs_rgb[img_idx])
+            sequence.modify_frame(img_idx, frame_data)
+
+        return sequence
+    
+    def _depth_alignment(self, img_idx: int, hand_side: str, img_rgb: np.ndarray) -> np.ndarray:
+        """
+        Perform depth-based pose refinement for a single frame.
+        
+        Algorithm Steps:
+        1. Extract depth image and segmentation mask for the frame
+        2. Obtain 3D hand mesh from HaMeR output
+        3. Create point cloud from segmented depth region
+        4. Identify visible mesh vertices through ray casting
+        5. Apply ICP registration between mesh and point cloud
+        6. Transform original keypoints using computed alignment
+        
+        Args:
+            img_idx: Index of the frame to process
+            hand_side: "left" or "right" specifying which hand to process
+            img_rgb: RGB image for reference (used in point cloud generation)
+            
+        Returns:
+            Refined 3D keypoint positions aligned with depth data
+        """
+        # Load frame-specific data
+        img_depth = self.imgs_depth[img_idx]
+        mask = self.left_masks[img_idx] if hand_side == "left" else self.right_masks[img_idx]
+        hamer_out = self.hamer_out_dict[hand_side][img_idx]
+        
+        # Create 3D hand mesh from HaMeR pose estimate
+        mesh = self._create_hand_mesh(hamer_out)
+
+        # Generate point cloud from depth image within segmented hand region
+        pcd = get_point_cloud_of_segmask(mask, img_depth, img_rgb, self.intrinsics_dict, visualize=False)
+
+        # Identify visible mesh vertices and corresponding depth points
+        visible_points_3d, visible_hamer_vertices = self._get_visible_pts_from_hamer(
+            self.detector_hamer, 
+            hamer_out, 
+            mesh, 
+            img_depth, 
+            self.intrinsics_dict
+        )
+        
+        # Compute optimal transformation using ICP registration
+        T, _ = self._get_transformation_estimate(visible_points_3d, visible_hamer_vertices, pcd)
+
+        # Apply transformation to refine original keypoint positions
+        kpts_3d = transform_pts(hamer_out["kpts_3d"], T)
+
+        return kpts_3d
 
     def are_kpts_too_close_to_margin(self, kpts_2d: np.ndarray, img_width: int, img_height: int, 
                                    margin: int = 20, threshold: float = 0.5) -> bool:
@@ -587,67 +670,67 @@ class Hand2DProcessor(HandBaseProcessor):
             "kpts_2d": hamer_out['kpts_2d']
         }
 
-    def _process_image_with_wilor(self, img_rgb: np.ndarray, bboxes: np.ndarray, hand_side: str, 
-                                  img_idx: int, view: bool = False) -> Dict[str, Any]:
-        """
-        Process RGB image with WiLor for 3D pose estimation.
+    # def _process_image_with_wilor(self, img_rgb: np.ndarray, bboxes: np.ndarray, hand_side: str, 
+    #                               img_idx: int, view: bool = False) -> Dict[str, Any]:
+    #     """
+    #     Process RGB image with WiLor for 3D pose estimation.
         
-        Args:
-            img_rgb: RGB image to process
-            bboxes: Hand bounding boxes for pose estimation guidance (used for matching)
-            hand_side: "left" or "right" specifying which hand to process
-            img_idx: Frame index for debugging and logging
-            view: Whether to display debug visualizations
+    #     Args:
+    #         img_rgb: RGB image to process
+    #         bboxes: Hand bounding boxes for pose estimation guidance (used for matching)
+    #         hand_side: "left" or "right" specifying which hand to process
+    #         img_idx: Frame index for debugging and logging
+    #         view: Whether to display debug visualizations
             
-        Returns:
-            Dictionary containing:
-                - img_hamer: Annotated image with pose visualization (to match HaMeR output key)
-                - kpts_3d: Estimated 3D keypoints
-                - kpts_2d: 2D keypoint projections in image coordinates
+    #     Returns:
+    #         Dictionary containing:
+    #             - img_hamer: Annotated image with pose visualization (to match HaMeR output key)
+    #             - kpts_3d: Estimated 3D keypoints
+    #             - kpts_2d: 2D keypoint projections in image coordinates
                 
-        Raises:
-            ValueError: If no valid hand pose is detected in the image for the specified side.
-        """
-        # WiLor's predict method processes the whole image and finds all hands.
-        wilor_outputs = self.wilor_pipe.predict(img_rgb)
+    #     Raises:
+    #         ValueError: If no valid hand pose is detected in the image for the specified side.
+    #     """
+    #     # WiLor's predict method processes the whole image and finds all hands.
+    #     wilor_outputs = self.wilor_pipe.predict(img_rgb)
 
-        if not wilor_outputs:
-            raise ValueError("WiLor: No hands detected in image")
+    #     if not wilor_outputs:
+    #         raise ValueError("WiLor: No hands detected in image")
 
-        # Find the correct hand from the predictions based on hand_side.
-        target_hand_pred = None
-        is_right_target = (hand_side == "right")
-        is_right = hand_side == "right"
+    #     # Find the correct hand from the predictions based on hand_side.
+    #     target_hand_pred = None
+    #     is_right_target = (hand_side == "right")
+    #     is_right = hand_side == "right"
         
-        for pred in wilor_outputs:
-            # pred['is_right'] is 0.0 for left, > 0.0 for right.
-            is_right_pred = (pred['is_right'] > 0.0)
-            if is_right_pred == is_right_target:
-                target_hand_pred = pred
-                break
+    #     for pred in wilor_outputs:
+    #         # pred['is_right'] is 0.0 for left, > 0.0 for right.
+    #         is_right_pred = (pred['is_right'] > 0.0)
+    #         if is_right_pred == is_right_target:
+    #             target_hand_pred = pred
+    #             break
         
-        if target_hand_pred is None:
-            raise ValueError(f"WiLor: {hand_side} hand not found in predictions")
+    #     if target_hand_pred is None:
+    #         raise ValueError(f"WiLor: {hand_side} hand not found in predictions")
 
-        wilor_preds = target_hand_pred['wilor_preds']
+    #     wilor_preds = target_hand_pred['wilor_preds']
 
-        # Extract keypoints
-        kpts_3d = wilor_preds['pred_keypoints_3d'][0].astype(np.float32)
-        kpts_2d = wilor_preds['pred_keypoints_2d'][0].astype(np.int32)
-        # Generate visualization image
-        # visualize
-        annotated_img_rgb = vis_hand_2D_skeleton_without_bbox(
-            image=img_rgb.copy(), 
-            joints_2d=kpts_2d, 
-            is_right=is_right
-        )
+    #     # Extract keypoints
+    #     kpts_3d = wilor_preds['pred_keypoints_3d'][0].astype(np.float32)
+    #     kpts_2d = wilor_preds['pred_keypoints_2d'][0].astype(np.int32)
+    #     # Generate visualization image
+    #     # visualize
+    #     annotated_img_rgb = vis_hand_2D_skeleton_without_bbox(
+    #         image=img_rgb.copy(), 
+    #         joints_2d=kpts_2d, 
+    #         is_right=is_right
+    #     )
 
-        # Return data in the same format as _process_image_with_hamer
-        return {
-            "img_hamer": annotated_img_rgb.astype(np.uint8),
-            "kpts_3d": kpts_3d,
-            "kpts_2d": kpts_2d
-        }
+    #     # Return data in the same format as _process_image_with_hamer
+    #     return {
+    #         "img_hamer": annotated_img_rgb.astype(np.uint8),
+    #         "kpts_3d": kpts_3d,
+    #         "kpts_2d": kpts_2d
+    #     }
     
 class Hand3DProcessor(HandBaseProcessor): 
     """

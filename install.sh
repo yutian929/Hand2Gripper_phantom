@@ -44,6 +44,7 @@ pip install -e .
 cd ../..
 
 # Download sample data
+mkdir -p data/raw
 cd data/raw
 wget https://download.cs.stanford.edu/juno/phantom/pick_and_place.zip
 unzip pick_and_place.zip
@@ -70,6 +71,12 @@ cd ../..
 
 # Hand2Gripper hand2gripper
 cd submodules/Hand2Gripper_hand2gripper/
+pip install -e .
+cd ../..
+
+# Hand2Gripper VSLAM
+pip install python_orb_slam3
+cd submodules/Hand2Gripper_VSLAM/
 pip install -e .
 cd ../..
 # <<< Hand2Gripper <<< #
