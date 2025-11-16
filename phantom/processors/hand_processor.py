@@ -115,9 +115,9 @@ class HandBaseProcessor(BaseProcessor):
                  including depth processing flags and model parameters
         """
         super().__init__(args)
-        self.process_hand_masks: bool = True
+        # self.process_hand_masks: bool = False
         self._initialize_detectors()
-        self.hand_mask_processor: Optional[HandSegmentationProcessor] = HandSegmentationProcessor(args) if self.process_hand_masks else None
+        # self.hand_mask_processor: Optional[HandSegmentationProcessor] = HandSegmentationProcessor(args) if self.process_hand_masks else None
         self.apply_depth_alignment: bool = True
 
         # >>> Hand2Gripper >>> #
@@ -189,19 +189,23 @@ class HandBaseProcessor(BaseProcessor):
         left_sequence = self._process_all_frames(imgs_rgb, left_bboxes, left_hand_detected, "left")
         right_sequence = self._process_all_frames(imgs_rgb, right_bboxes, right_hand_detected, "right")
 
+        # >>> Hand2Gripper >>> # 
         # Generate hand segmentation masks if enabled
-        if self.process_hand_masks:
-            print("Generating hand segmentation masks...")
-            self._get_hand_masks(data_sub_folder, left_sequence, right_sequence)
-            self.left_masks = np.load(paths.masks_hand_left)
-            self.right_masks = np.load(paths.masks_hand_right)
+        # if self.process_hand_masks:
+        #     print("Generating hand segmentation masks...")
+        #     self._get_hand_masks(data_sub_folder, left_sequence, right_sequence)
+        #     self.left_masks = np.load(paths.masks_hand_left)
+        #     self.right_masks = np.load(paths.masks_hand_right)
         
         # Apply depth-based pose refinement if enabled
-        if self.apply_depth_alignment:
-            print("Applying depth-based pose refinement...")
+        if self.apply_depth_alignment and os.path.exists(paths.depth) and os.path.exists(paths.masks_hand_left) and os.path.exists(paths.masks_hand_right):
+            print("\nSecond Time, Applying depth-based pose refinement...")
+            breakpoint()
             left_sequence = self._process_all_frames_depth_alignment(imgs_rgb, left_hand_detected, "left", left_sequence)
             right_sequence = self._process_all_frames_depth_alignment(imgs_rgb, right_hand_detected, "right", right_sequence)
-
+        else:
+            print("\nFirst Time, Skipping depth-based pose refinement...")
+        # <<< Hand2Gripper <<< #
         # Save processed sequences and generate visualizations
         self._save_results(paths, left_sequence, right_sequence)
 
@@ -663,6 +667,8 @@ class Hand2DProcessor(HandBaseProcessor):
         
         if hamer_out is None or not hamer_out.get("success", False):  
             raise ValueError("No hand detected in image")
+        
+        self.hamer_out_dict[hand_side][img_idx] = hamer_out
 
         return {
             "img_hamer": hamer_out["annotated_img"][:,:,::-1],  # Convert BGR to RGB
