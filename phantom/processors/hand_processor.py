@@ -200,7 +200,6 @@ class HandBaseProcessor(BaseProcessor):
         # Apply depth-based pose refinement if enabled
         if self.apply_depth_alignment and os.path.exists(paths.depth) and os.path.exists(paths.masks_hand_left) and os.path.exists(paths.masks_hand_right):
             print("\nSecond Time, Applying depth-based pose refinement...")
-            breakpoint()
             left_sequence = self._process_all_frames_depth_alignment(imgs_rgb, left_hand_detected, "left", left_sequence)
             right_sequence = self._process_all_frames_depth_alignment(imgs_rgb, right_hand_detected, "right", right_sequence)
         else:

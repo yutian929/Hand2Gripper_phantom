@@ -45,7 +45,7 @@ class ORB_SLAM3_RGBD_VO:
         # 初始化状态
         self.prev_data = None
         self.T_w_c = np.eye(4)  # 世界坐标系到相机坐标系的变换 (初始相机在原点)
-        self.trajectory = [self.T_w_c[:3, 3]]
+        self.trajectory = [self.T_w_c] # 存储完整的4x4位姿矩阵
 
     def _get_3d_points(self, keypoints, depth_frame):
         """根据关键点和深度图计算3D坐标。"""
@@ -72,7 +72,7 @@ class ORB_SLAM3_RGBD_VO:
         运行整个视觉里程计流程。
         """
         for i in range(len(self.rgb_frames)):
-            print(f"处理第 {i+1}/{len(self.rgb_frames)} 帧...")
+            # print(f"处理第 {i+1}/{len(self.rgb_frames)} 帧...")
             rgb_frame = self.rgb_frames[i]
             depth_frame = self.depth_frames[i]
             gray_frame = cv2.cvtColor(rgb_frame, cv2.COLOR_BGR2GRAY)
@@ -121,7 +121,7 @@ class ORB_SLAM3_RGBD_VO:
                 # T_w_c_curr = T_w_c_prev @ T_prev_curr
                 # T_prev_curr 是 T_curr_prev 的逆
                 self.T_w_c = self.T_w_c @ np.linalg.inv(T_relative)
-                self.trajectory.append(self.T_w_c[:3, 3])
+                self.trajectory.append(self.T_w_c)
 
             except Exception as e:
                 print(f"位姿估计失败: {e}")
@@ -133,24 +133,51 @@ class ORB_SLAM3_RGBD_VO:
 
     @staticmethod
     def plot_trajectory(trajectory):
-        """绘制相机轨迹"""
+        """
+        绘制相机轨迹及其方向。
+        trajectory: (N, 4, 4) 的numpy数组
+        """
         from matplotlib import pyplot as plt
-        fig = plt.figure()
+        fig = plt.figure(figsize=(10, 10))
         ax = fig.add_subplot(111, projection='3d')
+
+        # 提取位置
+        positions = trajectory[:, :3, 3]
         
         # 绘制轨迹线
-        ax.plot(trajectory[:, 0], trajectory[:, 1], trajectory[:, 2], label="Camera Trajectory")
+        ax.plot(positions[:, 0], positions[:, 1], positions[:, 2], label="Camera Trajectory")
         
         # 标注起点和终点
-        if len(trajectory) > 0:
-            ax.scatter(trajectory[0, 0], trajectory[0, 1], trajectory[0, 2], color='green', marker='o', s=100, label='Start')
-            ax.scatter(trajectory[-1, 0], trajectory[-1, 1], trajectory[-1, 2], color='red', marker='s', s=100, label='End')
+        if len(positions) > 0:
+            ax.scatter(positions[0, 0], positions[0, 1], positions[0, 2], color='green', marker='o', s=100, label='Start')
+            ax.scatter(positions[-1, 0], positions[-1, 1], positions[-1, 2], color='red', marker='s', s=100, label='End')
+
+        # 绘制相机位姿方向 (每隔一定帧数)
+        # 根据轨迹的运动范围动态调整坐标轴长度
+        if len(positions) > 1:
+            max_range = np.max(np.max(positions, axis=0) - np.min(positions, axis=0))
+            axis_length = max_range * 0.1 if max_range > 0 else 0.1
+        else:
+            axis_length = 0.1 # 如果只有一个点，使用默认长度
+        
+        step = max(1, len(trajectory) // 20) # 最多绘制20个坐标系
+        for i in range(0, len(trajectory), step):
+            T_w_c = trajectory[i]
+            origin = T_w_c[:3, 3]
+            R_w_c = T_w_c[:3, :3]
+            # 绘制X, Y, Z轴
+            # ax.quiver(origin[0], origin[1], origin[2], R_w_c[0, 0], R_w_c[1, 0], R_w_c[2, 0], color='r', length=axis_length)
+            # ax.quiver(origin[0], origin[1], origin[2], R_w_c[0, 1], R_w_c[1, 1], R_w_c[2, 1], color='g', length=axis_length)
+            ax.quiver(origin[0], origin[1], origin[2], R_w_c[0, 2], R_w_c[1, 2], R_w_c[2, 2], color='b', length=axis_length)
+
 
         ax.set_title("RGB-D VO Camera Trajectory")
         ax.set_xlabel("X")
         ax.set_ylabel("Y")
         ax.set_zlabel("Z")
         ax.legend()
+        # 保持各轴比例一致
+        ax.set_aspect('equal', adjustable='box')
         plt.show()
 
 
@@ -203,8 +230,9 @@ class VOTester:
             print("--- RGB-D VO 运行结束 ---\n")
 
             # 打印并可视化结果
-            print("相机运动轨迹 (X, Y, Z):")
-            print(trajectory)
+            print(f"相机运动轨迹 (共 {len(trajectory)} 个位姿):")
+            print("最后一个位姿矩阵 T_w_c:")
+            print(trajectory[-1])
             ORB_SLAM3_RGBD_VO.plot_trajectory(trajectory)
 
         except Exception as e:
@@ -214,9 +242,9 @@ class VOTester:
 if __name__ == "__main__":
     # 1. 定义路径和相机参数
     # !!! 请务必修改为您的真实文件路径 !!!
-    RGB_VIDEO_PATH = "/home/yutian/projs/Hand2Gripper_phantom/data/d435i/video.mp4"
-    DEPTH_NPY_PATH = "/home/yutian/projs/Hand2Gripper_phantom/data/d435i/depth.npy"
-    CAMERA_INTRINSICS_PATH = "/home/yutian/projs/Hand2Gripper_phantom/data/d435i/camera_intrinsics.json" 
+    RGB_VIDEO_PATH = "/home/yutian/Hand2Gripper_phantom/output/video_L.mp4"
+    DEPTH_NPY_PATH = "/home/yutian/Hand2Gripper_phantom/output/depth.npy"
+    CAMERA_INTRINSICS_PATH = "/home/yutian/Hand2Gripper_phantom/output/camera_intrinsics.json" 
 
     # 使用您自己的相机内参
     # K_MATRIX = np.array([[1057.7322998046875, 0, 972.5150756835938],

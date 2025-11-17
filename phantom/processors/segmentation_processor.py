@@ -255,7 +255,7 @@ class ArmSegmentationProcessor(BaseSegmentationProcessor):
         h2g_paths = self.get_paths(h2g_save_folder)
         self.vslam = ORB_SLAM3_RGBD_VO(h2g_paths.video_left, h2g_paths.depth, h2g_paths.hand2gripper_cam_intri)
         cam_traj = self.vslam.run()
-        self.vslam.plot_trajectory(cam_traj)
+        # self.vslam.plot_trajectory(cam_traj)
         # <<< Hand2Gripper <<<
         self._save_results(paths, masks, sam_imgs)
 
