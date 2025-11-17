@@ -39,10 +39,6 @@ DEFAULT_OVERLAP_THRESHOLD = 0.5
 DEFAULT_CODEC = "ffv1"
 ANNOTATION_CODEC = "h264"
 
-# >>> Hand2Gripper >>>
-from hand2gripper_vslam._orb_slam3 import ORB_SLAM3_RGBD_VO
-# <<< Hand2Gripper <<<
-
 class BaseSegmentationProcessor(BaseProcessor): 
     """
     Base class for video segmentation processing using SAM2.
@@ -249,14 +245,6 @@ class ArmSegmentationProcessor(BaseSegmentationProcessor):
         # Create visualization and save results
         sam_imgs = self._create_visualization(imgs_rgb, masks)
         self._validate_output_consistency(imgs_rgb, masks, sam_imgs)
-
-        # >>> Hand2Gripper >>>
-        h2g_save_folder = self.get_save_folder(data_sub_folder)
-        h2g_paths = self.get_paths(h2g_save_folder)
-        self.vslam = ORB_SLAM3_RGBD_VO(h2g_paths.video_left, h2g_paths.depth, h2g_paths.hand2gripper_cam_intri)
-        cam_traj = self.vslam.run()
-        # self.vslam.plot_trajectory(cam_traj)
-        # <<< Hand2Gripper <<<
         self._save_results(paths, masks, sam_imgs)
 
     def _setup_processing(

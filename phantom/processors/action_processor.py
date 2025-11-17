@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 # >>> Hand2Gripper >>>
 import mediapy as media
+from hand2gripper_vslam._orb_slam3 import ORB_SLAM3_RGBD_VO
 # <<< Hand2Gripper <<<
 
 @dataclass
@@ -122,6 +123,18 @@ class ActionProcessor(BaseProcessor):
             # self._process_bimanual(left_sequence, right_sequence, paths)
             self._process_bimanual_hand2gripper(left_sequence, right_sequence, paths, imgs_rgb, bbox_data)
             # <<< Hand2Gripper <<<
+        
+        # >>> Hand2Gripper >>>
+        vslam = ORB_SLAM3_RGBD_VO(paths.video_left, paths.depth, paths.hand2gripper_cam_intri)
+        if os.path.exists(paths.masks_arm):
+            arm_masks = np.load(paths.masks_arm)  # (N, H, W)
+            cam_traj = vslam.run_with_mask(arm_masks)
+        else:
+            cam_traj = vslam.run()
+        np.save(paths.hand2gripper_cam_traj, cam_traj)
+        vslam.plot_trajectory(cam_traj)
+        breakpoint()
+        # <<< Hand2Gripper <<<
 
     # >>> Hand2Gripper >>>
     def _process_bimanual_hand2gripper(

@@ -90,6 +90,7 @@ class Paths:
         self.hand2gripper_labels_right = self.hand2gripper_annotator_processor / "right"
         # vslam
         self.hand2gripper_cam_intri = self.data_path / "camera_intrinsics.json"
+        self.hand2gripper_cam_traj = self.action_processor / "hand2gripper_cam_traj.npy"
         # <<< Hand2Gripper <<< #
 
     def _setup_original_images(self):
