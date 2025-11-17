@@ -445,7 +445,8 @@ class HandModel:
         else:
             thumb_tip = left_pt if hand_side == "right" else right_pt
             index_tip = right_pt if hand_side == "right" else left_pt
-            gripper_ori, _ = HandModel.get_gripper_orientation(thumb_tip=thumb_tip, index_tip=index_tip, vertices=vertices, grasp_plane=None)
+            # gripper_ori, _ = HandModel.get_gripper_orientation(thumb_tip=thumb_tip, index_tip=index_tip, vertices=vertices, grasp_plane=None)
+            gripper_ori, _ = HandModel.get_gripper_orientation(thumb_tip=vertices[4], index_tip=vertices[8], vertices=vertices, grasp_plane=None)
             # Apply 90-degree rotation to align with robot gripper convention
             rot_90_deg = Rotation.from_euler('Z', 90, degrees=True).as_matrix()
             ee_ori = gripper_ori @ rot_90_deg
