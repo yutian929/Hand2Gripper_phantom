@@ -88,6 +88,7 @@ class ActionProcessor(BaseProcessor):
         # Set processing frequency to 15Hz 
         self.dt = 1/15 
         super().__init__(args)
+        self.visualize_traj = False
 
     def process_one_demo(self, data_sub_folder: str) -> None:
         """
@@ -121,7 +122,7 @@ class ActionProcessor(BaseProcessor):
             # >>> Hand2Gripper >>>
             # Origin
             # self._process_bimanual(left_sequence, right_sequence, paths)
-            self._process_bimanual_hand2gripper(left_sequence, right_sequence, paths, imgs_rgb, bbox_data)
+            left_actions, right_actions = self._process_bimanual_hand2gripper(left_sequence, right_sequence, paths, imgs_rgb, bbox_data)
             # <<< Hand2Gripper <<<
         
         # >>> Hand2Gripper >>>
@@ -132,8 +133,19 @@ class ActionProcessor(BaseProcessor):
         else:
             cam_traj = vslam.run()
         np.save(paths.hand2gripper_cam_traj, cam_traj)
-        vslam.plot_trajectory(cam_traj)
-        breakpoint()
+        
+        robot_base_traj = self.T_cam2robot @ cam_traj  # TODO: Need to verify the correctness
+        np.save(paths.hand2gripper_robot_base_traj, robot_base_traj)
+        
+        # Call the new visualization function
+        if self.visualize_traj:
+            self.visualize_trajectories(
+                cam_traj=cam_traj,
+                robot_base_traj=robot_base_traj,
+                left_actions=left_actions,
+                right_actions=right_actions,
+                T_cam2robot=self.T_cam2robot
+            )
         # <<< Hand2Gripper <<<
 
     # >>> Hand2Gripper >>>
@@ -161,6 +173,8 @@ class ActionProcessor(BaseProcessor):
 
         # Save results for both hands
         self._save_results(paths, union_indices, left_actions_refined, right_actions_refined)
+
+        return left_actions_refined, right_actions_refined
     
     def _process_hand_sequence_hand2gripper(
         self, 
@@ -211,6 +225,123 @@ class ActionProcessor(BaseProcessor):
             )
         return hand_model
     # <<< Hand2Gripper <<<
+
+    @staticmethod
+    def visualize_trajectories(cam_traj, robot_base_traj, left_actions, right_actions, T_cam2robot):
+        """
+        根据要求，绘制三个独立的轨迹图，并为每个轨迹添加方向指示。
+        1. cam_traj 的轨迹
+        2. robot_base_traj 的轨迹
+        3. left_actions 和 right_actions 的轨迹
+
+        Args:
+            cam_traj (np.ndarray): 相机轨迹, shape (N, 4, 4).
+            robot_base_traj (np.ndarray): 机器人基座轨迹, shape (N, 4, 4).
+            left_actions (EEActions): 左手动作.
+            right_actions (EEActions): 右手动作.
+            T_cam2robot (np.ndarray): 从相机到机器人基座的变换矩阵.
+        """
+        from matplotlib import pyplot as plt
+
+        fig = plt.figure(figsize=(24, 8))
+
+        def plot_trajectory_with_orientation(ax, positions, orientations, label, color, start_color, end_color):
+            """
+            绘制轨迹及其方向的辅助函数。
+            - positions: (N, 3) 轨迹点
+            - orientations: (N, 3, 3) 旋转矩阵
+            """
+            if len(positions) == 0:
+                return
+
+            # 绘制轨迹线
+            ax.plot(positions[:, 0], positions[:, 1], positions[:, 2], label=label, color=color)
+            
+            # 标注起点和终点
+            ax.scatter(positions[0, 0], positions[0, 1], positions[0, 2], color=start_color, marker='o', s=100, label=f'{label} Start')
+            ax.scatter(positions[-1, 0], positions[-1, 1], positions[-1, 2], color=end_color, marker='s', s=100, label=f'{label} End')
+
+            # 根据轨迹的运动范围动态调整坐标轴长度
+            if len(positions) > 1:
+                max_range = np.max(np.max(positions, axis=0) - np.min(positions, axis=0))
+                axis_length = max_range * 0.05 if max_range > 0 else 0.05
+            else:
+                axis_length = 0.05
+            
+            # 最多绘制10个坐标系
+            step = max(1, len(positions) // 10)
+            for i in range(0, len(positions), step):
+                origin = positions[i]
+                R = orientations[i]
+                # 绘制X, Y, Z轴
+                ax.quiver(origin[0], origin[1], origin[2], R[0, 0], R[1, 0], R[2, 0], color='r', length=axis_length)
+                ax.quiver(origin[0], origin[1], origin[2], R[0, 1], R[1, 1], R[2, 1], color='g', length=axis_length)
+                ax.quiver(origin[0], origin[1], origin[2], R[0, 2], R[1, 2], R[2, 2], color='b', length=axis_length)
+
+        # --- 图 1: cam_traj 轨迹 ---
+        ax1 = fig.add_subplot(131, projection='3d')
+        plot_trajectory_with_orientation(
+            ax1, 
+            positions=cam_traj[:, :3, 3], 
+            orientations=cam_traj[:, :3, :3], 
+            label='cam_traj', 
+            color='magenta',
+            start_color='green',
+            end_color='red'
+        )
+        ax1.set_title("Camera Trajectory (cam_traj)")
+        ax1.set_xlabel("X"); ax1.set_ylabel("Y"); ax1.set_zlabel("Z")
+        ax1.legend()
+        ax1.set_aspect('equal', adjustable='box')
+
+        # --- 图 2: robot_base_traj 轨迹 ---
+        ax2 = fig.add_subplot(132, projection='3d')
+        plot_trajectory_with_orientation(
+            ax2,
+            positions=robot_base_traj[:, :3, 3],
+            orientations=robot_base_traj[:, :3, :3],
+            label='robot_base_traj',
+            color='purple',
+            start_color='green',
+            end_color='red'
+        )
+        ax2.set_title("Robot Base Trajectory (robot_base_traj)")
+        ax2.set_xlabel("X"); ax2.set_ylabel("Y"); ax2.set_zlabel("Z")
+        ax2.legend()
+        ax2.set_aspect('equal', adjustable='box')
+
+        # --- 图 3: left_actions 和 right_actions 轨迹 ---
+        ax3 = fig.add_subplot(133, projection='3d')
+        if left_actions is not None and len(left_actions.ee_pts) > 0:
+            plot_trajectory_with_orientation(
+                ax3,
+                positions=left_actions.ee_pts,
+                orientations=left_actions.ee_oris,
+                label='Left Action',
+                color='c',
+                start_color='blue',
+                end_color='darkcyan'
+            )
+
+        if right_actions is not None and len(right_actions.ee_pts) > 0:
+            plot_trajectory_with_orientation(
+                ax3,
+                positions=right_actions.ee_pts,
+                orientations=right_actions.ee_oris,
+                label='Right Action',
+                color='orange',
+                start_color='yellow',
+                end_color='darkorange'
+            )
+        
+        ax3.set_title("Hand Actions Trajectory")
+        ax3.set_xlabel("X"); ax3.set_ylabel("Y"); ax3.set_zlabel("Z")
+        ax3.legend()
+        ax3.set_aspect('equal', adjustable='box')
+
+        plt.tight_layout()
+        plt.show()
+
 
     def _process_single_arm(self, left_sequence: HandSequence, right_sequence: HandSequence, paths) -> None:
         """Process single-arm setup with one target hand."""

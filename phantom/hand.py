@@ -429,7 +429,7 @@ class HandModel:
         left_pt = vertices[pred_triple[1]]
         right_pt = vertices[pred_triple[2]]
 
-        print(f"hand_side: {hand_side}, left_pt: {pred_triple[1]}, right_pt: {pred_triple[2]}")
+        # print(f"hand_side: {hand_side}, left_pt: {pred_triple[1]}, right_pt: {pred_triple[2]}")
 
         # >>> Origin >>>
         # Calculate grasp point as midpoint between thumb and middle finger tips

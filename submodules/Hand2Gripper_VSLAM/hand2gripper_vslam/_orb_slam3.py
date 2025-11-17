@@ -212,7 +212,7 @@ class ORB_SLAM3_RGBD_VO:
         return np.array(self.trajectory)
 
     @staticmethod
-    def plot_trajectory(trajectory):
+    def plot_trajectory(trajectory, title="Camera Trajectory"):
         """
         绘制相机轨迹及其方向。
         trajectory: (N, 4, 4) 的numpy数组
@@ -225,7 +225,7 @@ class ORB_SLAM3_RGBD_VO:
         positions = trajectory[:, :3, 3]
         
         # 绘制轨迹线
-        ax.plot(positions[:, 0], positions[:, 1], positions[:, 2], label="Camera Trajectory")
+        ax.plot(positions[:, 0], positions[:, 1], positions[:, 2], label=title)
         
         # 标注起点和终点
         if len(positions) > 0:
