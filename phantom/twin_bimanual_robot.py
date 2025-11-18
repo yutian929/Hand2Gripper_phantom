@@ -22,7 +22,6 @@ from robosuite.utils.camera_utils import get_real_depth_map # type: ignore
 from robomimic.envs.env_robosuite import EnvRobosuite # type: ignore
 import robomimic.utils.obs_utils as ObsUtils # type: ignore
 
-
 @dataclass
 class MujocoCameraParams:
     """
@@ -374,7 +373,10 @@ class TwinBimanualRobot:
         for cam in self.debug_cameras:
             cam_img = self.get_camera_image(obs, cam)
             output[f"{cam}_img"] = cam_img
-
+            # >>> Hand2Gripper >>>
+            cv2.imshow(f"{cam}_img", cam_img[:,:,::-1])
+            cv2.waitKey(1)
+            # <<< Hand2Gripper <<<
         return output
  
     def _convert_handgripper_pos_to_action(self, gripper_pos: float) -> np.ndarray:

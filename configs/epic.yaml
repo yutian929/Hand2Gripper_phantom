@@ -15,13 +15,14 @@ mode: ["all"]  # Default processing mode
 demo_num: null  # Process specific demo number (null = process all videos in the root folder)
 
 # Additional settings
-debug_cameras: [] # Add other robomimic cameras like sideview, etc. Warning: this significantly slows down the processing time
+debug_cameras: ['sideview', 'birdview', 'frontview'] # Add other robomimic cameras like sideview, etc. Warning: this significantly slows down the processing time
 
 
 # EPIC-KITCHENS configuration override
 input_resolution: 480
 output_resolution: 480
-robot: "Kinova3"
+# robot: "Kinova3"
+robot: "UR5e"
 gripper: "Robotiq85"
 square: false
 epic: true
