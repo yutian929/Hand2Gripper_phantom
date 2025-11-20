@@ -261,10 +261,13 @@ class RobotInpaintProcessor(BaseProcessor):
                 print(f"Tracking error too large at frame {idx}, skipping", robot_results['pos_err'])
                 logger.warning(f"Tracking error too large at frame {idx}, skipping")
                 return None
-        else:        
-            if robot_results['left_pos_err'] > self.TRACKING_ERROR_THRESHOLD or robot_results['right_pos_err'] > self.TRACKING_ERROR_THRESHOLD:
+        else:
+            # >>> Hand2Gripper >>>
+            # if robot_results['left_pos_err'] > self.TRACKING_ERROR_THRESHOLD or robot_results['right_pos_err'] > self.TRACKING_ERROR_THRESHOLD:
+            if robot_results['left_pos_err'] > self.TRACKING_ERROR_THRESHOLD and robot_results['right_pos_err'] > self.TRACKING_ERROR_THRESHOLD:
                 logger.warning(f"Tracking error too large at frame {idx}, skipping")
                 return None
+            # <<< Hand2Gripper <<< #
 
         # Generate robot overlay using appropriate method
         if self.use_depth:

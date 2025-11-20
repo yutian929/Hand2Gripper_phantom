@@ -201,12 +201,7 @@ class TwinBimanualRobot:
         # Initialize environment and compute robot base position
         self.reset()
         self.robot_base_pos = np.array([0, 0, self.env.env.robot_base_height+self.env.env.robot_base_offset])
-        # >>> Hand2Gripper >>>
-        # self.robot_base_pos_arx5_bias = np.array([0.5, 0.0, 0.0])  # Adjust if needed for ARX5
-        # self.robot_base_pos = self.robot_base_pos + self.robot_base_pos_arx5_bias
-        # <<< Hand2Gripper <<<
 
- 
     def reset(self):
         """Reset environment and clear observation history."""
         self.env.reset()
