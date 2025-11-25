@@ -1,4 +1,5 @@
 import os
+import glob
 import mediapy as media
 import numpy as np
 from python_orb_slam3 import ORBExtractor
@@ -13,14 +14,29 @@ class ORB_SLAM3_RGBD_VO:
         """
         初始化RGB-D视觉里程计。
 
-        :param rgb_video_path: RGB视频文件路径。
-        :param depth_npy_path: 深度图.npy文件路径 (N, H, W)。
+        :param rgb_video_path: RGB视频文件路径 或 包含RGB图像的文件夹路径。
+        :param depth_npy_path: 深度图.npy文件路径 (N, H, W) 或 包含深度.npy文件的文件夹路径。
         :param camera_intri_json_path: 相机内参JSON文件路径。
         """
 
         print("正在加载数据...")
-        self.rgb_frames = media.read_video(rgb_video_path)
-        self.depth_frames = np.load(depth_npy_path)
+        
+        # 处理RGB输入 (视频文件 或 文件夹)
+        if os.path.isdir(rgb_video_path):
+            image_files = sorted(glob.glob(os.path.join(rgb_video_path, "*.png")), 
+                                 key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
+            # cv2.imread 读取为 BGR，这与后续 cv2.cvtColor(..., cv2.COLOR_BGR2GRAY) 兼容
+            self.rgb_frames = [cv2.imread(f) for f in image_files]
+        else:
+            self.rgb_frames = media.read_video(rgb_video_path)
+
+        # 处理深度输入 (单个npy文件 或 文件夹)
+        if os.path.isdir(depth_npy_path):
+            depth_files = sorted(glob.glob(os.path.join(depth_npy_path, "*.npy")), 
+                                 key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
+            self.depth_frames = [np.load(f) for f in depth_files]
+        else:
+            self.depth_frames = np.load(depth_npy_path)
         
         assert len(self.rgb_frames) == len(self.depth_frames), \
             f"RGB帧数 ({len(self.rgb_frames)}) 与 深度帧数 ({len(self.depth_frames)}) 不一致！"
@@ -30,10 +46,19 @@ class ORB_SLAM3_RGBD_VO:
         # 加载相机内参
         with open(camera_intri_json_path, "r") as f:
             intrinsics = json.load(f)
-        color_intr = intrinsics["color"]
-        self.K = np.array([[color_intr["fx"], 0, color_intr["cx"]],
-                                   [0, color_intr["fy"], color_intr["cy"]],
-                                   [0, 0, 1]])
+        
+        if "color" in intrinsics:
+            # 原有的自定义格式
+            color_intr = intrinsics["color"]
+            self.K = np.array([[color_intr["fx"], 0, color_intr["cx"]],
+                                       [0, color_intr["fy"], color_intr["cy"]],
+                                       [0, 0, 1]])
+        elif "k" in intrinsics:
+            # ROS CameraInfo 格式 (k 是一个展平的 3x3 矩阵)
+            self.K = np.array(intrinsics["k"]).reshape(3, 3)
+        else:
+            raise ValueError("无法识别的相机内参 JSON 格式，未找到 'color' 或 'k' 字段。")
+
         self.fx = self.K[0, 0]
         self.fy = self.K[1, 1]
         self.cx = self.K[0, 2]
@@ -295,83 +320,112 @@ class ORB_SLAM3_RGBD_VO:
         plt.show()
 
 
+# if __name__ == "__main__":
+    # # 1. 定义文件路径
+    # RGB_VIDEO_PATH = "/home/yutian/Hand2Gripper_phantom/data/raw/epic/0/video_L.mp4"
+    # DEPTH_NPY_PATH = "/home/yutian/Hand2Gripper_phantom/data/raw/epic/0/depth.npy"
+    # CAMERA_INTRINSICS_PATH = "/home/yutian/Hand2Gripper_phantom/data/raw/epic/0/camera_intrinsics.json"
+    # MASKS_ARM_NPY_PATH = "/home/yutian/Hand2Gripper_phantom/data/processed/epic/0/segmentation_processor/masks_arm.npy"
+
+    # # 检查文件是否存在
+    # if not all(os.path.exists(p) for p in [RGB_VIDEO_PATH, DEPTH_NPY_PATH, CAMERA_INTRINSICS_PATH]):
+    #     print("错误: 请确保所有文件路径都正确，并且文件存在。")
+    #     print(f"RGB视频: {RGB_VIDEO_PATH}")
+    #     print(f"深度NPY: {DEPTH_NPY_PATH}")
+    #     print(f"相机内参: {CAMERA_INTRINSICS_PATH}")
+    #     exit()
+
+    # trajectory_no_mask = None
+    # trajectory_with_mask = None
+
+    # # --- 场景1: 不使用掩码运行 ---
+    # print("\n" + "="*50)
+    # print("场景 1: 不使用掩码运行视觉里程计")
+    # print("="*50)
+    # try:
+    #     # 初始化并运行VO
+    #     vo_no_mask = ORB_SLAM3_RGBD_VO(RGB_VIDEO_PATH, DEPTH_NPY_PATH, CAMERA_INTRINSICS_PATH)
+    #     trajectory_no_mask = vo_no_mask.run()
+    #     print("--- 无掩码VO运行结束 ---\n")
+
+    #     # 打印并可视化结果
+    #     if len(trajectory_no_mask) > 1:
+    #         print(f"相机运动轨迹 (共 {len(trajectory_no_mask)} 个位姿):")
+    #         print("最后一个位姿矩阵 T_w_c:")
+    #         print(trajectory_no_mask[-1])
+    #         # ORB_SLAM3_RGBD_VO.plot_trajectory(trajectory_no_mask) # 单独绘图(可选)
+    #     else:
+    #         print("未能成功生成轨迹。")
+    #         trajectory_no_mask = None
+
+    # except Exception as e:
+    #     print(f"无掩码测试过程中发生错误: {e}")
+
+
+    # # --- 场景2: 使用掩码运行 ---
+    # if os.path.exists(MASKS_ARM_NPY_PATH):
+    #     print("\n" + "="*50)
+    #     print("场景 2: 使用动态掩码运行视觉里程计")
+    #     print("="*50)
+    #     try:
+    #         arm_masks = np.load(MASKS_ARM_NPY_PATH)
+    #         print(f"已加载掩码，形状为: {arm_masks.shape}, 类型为: {arm_masks.dtype}")
+
+    #         # 初始化并运行VO
+    #         vo_with_mask = ORB_SLAM3_RGBD_VO(RGB_VIDEO_PATH, DEPTH_NPY_PATH, CAMERA_INTRINSICS_PATH)
+    #         trajectory_with_mask = vo_with_mask.run_with_mask(arm_masks)
+    #         print("--- 带掩码VO运行结束 ---\n")
+
+    #         # 打印并可视化结果
+    #         if len(trajectory_with_mask) > 1:
+    #             print(f"相机运动轨迹 (共 {len(trajectory_with_mask)} 个位姿):")
+    #             print("最后一个位姿矩阵 T_w_c:")
+    #             print(trajectory_with_mask[-1])
+    #             # ORB_SLAM3_RGBD_VO.plot_trajectory(trajectory_with_mask) # 单独绘图(可选)
+    #         else:
+    #             print("未能成功生成轨迹。")
+    #             trajectory_with_mask = None
+
+    #     except Exception as e:
+    #         print(f"带掩码测试过程中发生错误: {e}")
+
+    # # --- 场景3: 比较两个轨迹 ---
+    # if trajectory_no_mask is not None and trajectory_with_mask is not None:
+    #     print("\n" + "="*50)
+    #     print("场景 3: 比较两种情况下的轨迹")
+    #     print("="*50)
+    #     ORB_SLAM3_RGBD_VO.plot_trajectories_comparison(
+    #         trajectory_no_mask, "Without Mask",
+    #         trajectory_with_mask, "With Mask"
+    #     )
+    # else:
+    #     print("\n无法生成对比图，因为至少有一个轨迹未能成功计算。")
+
 if __name__ == "__main__":
-    # 1. 定义文件路径
-    RGB_VIDEO_PATH = "/home/yutian/Hand2Gripper_phantom/data/raw/epic/0/video_L.mp4"
-    DEPTH_NPY_PATH = "/home/yutian/Hand2Gripper_phantom/data/raw/epic/0/depth.npy"
-    CAMERA_INTRINSICS_PATH = "/home/yutian/Hand2Gripper_phantom/data/raw/epic/0/camera_intrinsics.json"
-    MASKS_ARM_NPY_PATH = "/home/yutian/Hand2Gripper_phantom/data/processed/epic/0/segmentation_processor/masks_arm.npy"
+    # 定义数据根目录 (根据实际情况修改)
+    DATA_ROOT = "/home/yutian/ros2_ws/camera_data"
+    
+    RGB_PATH = os.path.join(DATA_ROOT, "color")
+    DEPTH_PATH = os.path.join(DATA_ROOT, "depth")
+    CAMERA_INFO_PATH = os.path.join(DATA_ROOT, "camera_info.json")
 
-    # 检查文件是否存在
-    if not all(os.path.exists(p) for p in [RGB_VIDEO_PATH, DEPTH_NPY_PATH, CAMERA_INTRINSICS_PATH]):
-        print("错误: 请确保所有文件路径都正确，并且文件存在。")
-        print(f"RGB视频: {RGB_VIDEO_PATH}")
-        print(f"深度NPY: {DEPTH_NPY_PATH}")
-        print(f"相机内参: {CAMERA_INTRINSICS_PATH}")
-        exit()
-
-    trajectory_no_mask = None
-    trajectory_with_mask = None
-
-    # --- 场景1: 不使用掩码运行 ---
-    print("\n" + "="*50)
-    print("场景 1: 不使用掩码运行视觉里程计")
-    print("="*50)
-    try:
-        # 初始化并运行VO
-        vo_no_mask = ORB_SLAM3_RGBD_VO(RGB_VIDEO_PATH, DEPTH_NPY_PATH, CAMERA_INTRINSICS_PATH)
-        trajectory_no_mask = vo_no_mask.run()
-        print("--- 无掩码VO运行结束 ---\n")
-
-        # 打印并可视化结果
-        if len(trajectory_no_mask) > 1:
-            print(f"相机运动轨迹 (共 {len(trajectory_no_mask)} 个位姿):")
-            print("最后一个位姿矩阵 T_w_c:")
-            print(trajectory_no_mask[-1])
-            # ORB_SLAM3_RGBD_VO.plot_trajectory(trajectory_no_mask) # 单独绘图(可选)
-        else:
-            print("未能成功生成轨迹。")
-            trajectory_no_mask = None
-
-    except Exception as e:
-        print(f"无掩码测试过程中发生错误: {e}")
-
-
-    # --- 场景2: 使用掩码运行 ---
-    if os.path.exists(MASKS_ARM_NPY_PATH):
-        print("\n" + "="*50)
-        print("场景 2: 使用动态掩码运行视觉里程计")
-        print("="*50)
+    # 检查路径是否存在
+    if os.path.exists(RGB_PATH) and os.path.exists(DEPTH_PATH) and os.path.exists(CAMERA_INFO_PATH):
+        print(f"开始处理数据: {DATA_ROOT}")
         try:
-            arm_masks = np.load(MASKS_ARM_NPY_PATH)
-            print(f"已加载掩码，形状为: {arm_masks.shape}, 类型为: {arm_masks.dtype}")
-
             # 初始化并运行VO
-            vo_with_mask = ORB_SLAM3_RGBD_VO(RGB_VIDEO_PATH, DEPTH_NPY_PATH, CAMERA_INTRINSICS_PATH)
-            trajectory_with_mask = vo_with_mask.run_with_mask(arm_masks)
-            print("--- 带掩码VO运行结束 ---\n")
-
-            # 打印并可视化结果
-            if len(trajectory_with_mask) > 1:
-                print(f"相机运动轨迹 (共 {len(trajectory_with_mask)} 个位姿):")
-                print("最后一个位姿矩阵 T_w_c:")
-                print(trajectory_with_mask[-1])
-                # ORB_SLAM3_RGBD_VO.plot_trajectory(trajectory_with_mask) # 单独绘图(可选)
+            vo = ORB_SLAM3_RGBD_VO(RGB_PATH, DEPTH_PATH, CAMERA_INFO_PATH)
+            trajectory = vo.run()
+            
+            if len(trajectory) > 0:
+                print(f"轨迹生成成功，共 {len(trajectory)} 帧。")
+                # 可视化轨迹
+                ORB_SLAM3_RGBD_VO.plot_trajectory(trajectory)
             else:
-                print("未能成功生成轨迹。")
-                trajectory_with_mask = None
-
+                print("轨迹生成失败。")
         except Exception as e:
-            print(f"带掩码测试过程中发生错误: {e}")
-
-    # --- 场景3: 比较两个轨迹 ---
-    if trajectory_no_mask is not None and trajectory_with_mask is not None:
-        print("\n" + "="*50)
-        print("场景 3: 比较两种情况下的轨迹")
-        print("="*50)
-        ORB_SLAM3_RGBD_VO.plot_trajectories_comparison(
-            trajectory_no_mask, "Without Mask",
-            trajectory_with_mask, "With Mask"
-        )
+            print(f"运行出错: {e}")
+            import traceback
+            traceback.print_exc()
     else:
-        print("\n无法生成对比图，因为至少有一个轨迹未能成功计算。")
+        print(f"路径不存在，请检查:\nRGB: {RGB_PATH}\nDepth: {DEPTH_PATH}\nInfo: {CAMERA_INFO_PATH}")
