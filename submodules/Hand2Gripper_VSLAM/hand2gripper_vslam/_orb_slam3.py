@@ -19,7 +19,7 @@ class ORB_SLAM3_RGBD_VO:
         :param camera_intri_json_path: 相机内参JSON文件路径。
         """
 
-        print("正在加载数据...")
+        print("ORB-SLAM3...Loading data...")
         
         # 处理RGB输入 (视频文件 或 文件夹)
         if os.path.isdir(rgb_video_path):
@@ -41,7 +41,7 @@ class ORB_SLAM3_RGBD_VO:
         assert len(self.rgb_frames) == len(self.depth_frames), \
             f"RGB帧数 ({len(self.rgb_frames)}) 与 深度帧数 ({len(self.depth_frames)}) 不一致！"
         
-        print(f"数据加载成功，共 {len(self.rgb_frames)} 帧。")
+        print(f"VSLAM Finished {len(self.rgb_frames)} frames.")
 
         # 加载相机内参
         with open(camera_intri_json_path, "r") as f:
@@ -64,7 +64,7 @@ class ORB_SLAM3_RGBD_VO:
         self.cx = self.K[0, 2]
         self.cy = self.K[1, 2]
 
-        self.orb_extractor = ORBExtractor()
+        self.orb_extractor = ORBExtractor(n_features=2000)
         self.bf_matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
 
         # 初始化状态
@@ -184,7 +184,7 @@ class ORB_SLAM3_RGBD_VO:
 
             # 1. 提取特征
             kps, des = self.orb_extractor.detectAndCompute(gray_frame)
-
+            
             if self.prev_data is None:
                 # 如果是第一帧，只保存数据
                 self.prev_data = {'kps': kps, 'des': des, 'depth': depth_frame}
