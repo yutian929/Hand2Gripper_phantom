@@ -188,7 +188,11 @@ class TwinBimanualRobot:
         options["camera_principalpixel"] = self.camera_params.principalpixel
         options["camera_focalpixel"] = self.camera_params.focalpixel
 
+        options["force_x"] = 1.0  # X position offset for robot base
+        options["force_z"] = 1.2  # Z position offset for robot base
+
         # Create the robosuite environment
+        # breakpoint()
         self.env = EnvRobosuite(
             **options,
             render=render,
@@ -197,7 +201,6 @@ class TwinBimanualRobot:
             camera_names=[self.camera_params.name] + self.debug_cameras,
             control_freq=20,  # 20 Hz control frequency
         )
-
         # Initialize environment and compute robot base position
         self.reset()
         self.robot_base_pos = np.array([0, 0, self.env.env.robot_base_height+self.env.env.robot_base_offset])
@@ -422,6 +425,27 @@ class TwinBimanualRobot:
         Returns:
             Final observation dictionary from simulation
         """
+        # Update target spheres visualization
+        try:
+            sim = self.env.env.sim
+            # Calculate world coordinates for targets
+            t_pos_0 = ee_pos[0]
+            t_pos_1 = ee_pos[1]
+            
+            if self.epic:
+                t_pos_0 = self.base_T_1[:3, 3] + self.base_T_1[:3, :3] @ t_pos_0
+                t_pos_1 = self.base_T_1[:3, 3] + self.base_T_1[:3, :3] @ t_pos_1
+            else:
+                t_pos_0 = t_pos_0 + self.robot_base_pos
+                t_pos_1 = t_pos_1 + self.robot_base_pos
+            
+            bid_0 = sim.model.body_name2id("target_sphere_0_main")
+            bid_1 = sim.model.body_name2id("target_sphere_1_main")
+            sim.model.body_pos[bid_0] = t_pos_0
+            sim.model.body_pos[bid_1] = t_pos_1
+        except Exception:
+            pass
+
         if not self.joint_controller:
             # Pose control mode: convert poses to actions
             action_0 = self.get_action_from_ee_pose(ee_pos[0], ee_ori[0], gripper_action[0], use_base_offset=True)
@@ -449,6 +473,7 @@ class TwinBimanualRobot:
 
         # Execute action for specified number of steps
         for _ in range(n_steps):
+            # breakpoint()
             obs, _, _, _ = self.env.step(action)
             if self.render:
                 self.env.render()
