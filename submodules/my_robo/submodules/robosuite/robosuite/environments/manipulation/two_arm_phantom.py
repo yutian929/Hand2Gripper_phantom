@@ -242,10 +242,20 @@ class TwoArmPhantom(TwoArmEnv):
                     return val
         # Default values if config file or key does not exist
         default_params = {
-            "robots_distance": 0.4,
-            "robots_height": 0.8,
-            "zed_camera_pos": [-0.6, 0, 0.8],
-            "zed_camera_quat": [0, 0, 0, 1]
+            "robots-left-base_x": 0,
+            "robots-left-base_y": -0.2,
+            "robots-left-base_z": 0.8,
+            "robots-right-base_x": 0,
+            "robots-right-base_y": 0.2,
+            "robots-right-base_z": 0.8,
+
+            "camera-zed-pos_x": -1.0,
+            "camera-zed-pos_y": 0,
+            "camera-zed-pos_z": 1.3,
+            "camera-zed-quat_w": 0.5,
+            "camera-zed-quat_x": -0.5,
+            "camera-zed-quat_y": -0.5,
+            "camera-zed-quat_z": 0.5
         }
         return default_params.get(key, None)
 
@@ -271,13 +281,19 @@ class TwoArmPhantom(TwoArmEnv):
                     robot.robot_model.set_base_ori(rot)
             elif self.env_configuration == "phantom_parallel":  # "phantom_parallel" configuration setting
                 # Set up robots parallel to each other but offset from the center
-                robots_dis = self._load_hand2gripper_params("robots_distance")
-                robots_height = self._load_hand2gripper_params("robots_height")
-                for robot, offset in zip(self.robots, (-robots_dis / 2, robots_dis / 2)):
-                    xpos = robot.robot_model.base_xpos_offset["empty"]
-                    xpos = np.array(xpos) + np.array((0, offset, robots_height))
-                    robot.robot_model.set_base_xpos(xpos)
-                    print(f"Set {robot} base xpos to {xpos}")
+                left_robot, right_robot = self.robots
+                base_pose_left = np.array((
+                    self._load_hand2gripper_params("robots-left-base_x"),
+                    self._load_hand2gripper_params("robots-left-base_y"),
+                    self._load_hand2gripper_params("robots-left-base_z"),
+                ))
+                base_pose_right = np.array((
+                    self._load_hand2gripper_params("robots-right-base_x"),
+                    self._load_hand2gripper_params("robots-right-base_y"),
+                    self._load_hand2gripper_params("robots-right-base_z"),
+                ))
+                left_robot.robot_model.set_base_xpos(base_pose_left)
+                right_robot.robot_model.set_base_xpos(base_pose_right)
             else:  # "parallel" configuration setting
                 # Set up robots parallel to each other but offset from the center
                 for robot, offset in zip(self.robots, (-0.25, 0.25)):
@@ -292,11 +308,21 @@ class TwoArmPhantom(TwoArmEnv):
         mujoco_arena.set_origin([0, 0, 0])
 
         # Modify default agentview camera
-        zed_camera_pos = self._load_hand2gripper_params("zed_camera_pos")
+        zed_camera_pos = np.array((
+            self._load_hand2gripper_params("camera-zed-pos_x"),
+            self._load_hand2gripper_params("camera-zed-pos_y"),
+            self._load_hand2gripper_params("camera-zed-pos_z"),
+        ))
+        zed_camera_quat = np.array((
+            self._load_hand2gripper_params("camera-zed-quat_x"),
+            self._load_hand2gripper_params("camera-zed-quat_y"),
+            self._load_hand2gripper_params("camera-zed-quat_z"),
+            self._load_hand2gripper_params("camera-zed-quat_w"),
+        ))
         mujoco_arena.set_camera(
             camera_name="zed",
             pos=zed_camera_pos,
-            quat=self._load_hand2gripper_params("zed_camera_quat"),
+            quat=zed_camera_quat,
             camera_attribs={"resolution": f"{self.camera_widths[0]} {self.camera_heights[0]}",},
         )
         print(f"Set zed camera pos to {zed_camera_pos}")
