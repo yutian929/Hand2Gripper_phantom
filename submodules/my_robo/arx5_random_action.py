@@ -70,6 +70,7 @@ if __name__ == "__main__":
     for i in tqdm.tqdm(range(300)):
         start = time.time()
         action = np.random.randn(*env.action_spec[0].shape)
+        print(f"Action: {action}")
         obs, reward, done, _ = env.step(action)
         # breakpoint()
         # Get RGB and Instance Segmentation images

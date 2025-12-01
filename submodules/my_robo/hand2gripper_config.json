@@ -1,16 +1,18 @@
 {
-    "robots-left-base_x": 0,
-    "robots-left-base_y": -0.2,
-    "robots-left-base_z": 0.8,
-    "robots-right-base_x": 0,
-    "robots-right-base_y": 0.2,
-    "robots-right-base_z": 0.8,
+    "robots-left-base_x": 0.0,
+    "robots-left-base_y": 0.2,
+    "robots-left-base_z": 0.7,
 
-    "camera-zed-pos_x": -1.0,
-    "camera-zed-pos_y": 0,
-    "camera-zed-pos_z": 1.3,
+    "robots-right-base_x": 0.0,
+    "robots-right-base_y": -0.2,
+    "robots-right-base_z": 0.7,
+
+    "camera-zed-pos_x": 0.0,
+    "camera-zed-pos_y": 0.0,
+    "camera-zed-pos_z": 1.4,
     "camera-zed-quat_x": -0.5,
     "camera-zed-quat_y": 0.5,
     "camera-zed-quat_z": 0.5,
-    "camera-zed-quat_w": -0.5
+    "camera-zed-quat_w": -0.5,
+    "camera-zed-offset_horizon": 45.0
 }

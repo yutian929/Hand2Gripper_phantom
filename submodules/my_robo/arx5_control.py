@@ -5,6 +5,7 @@ import tqdm
 from robosuite.robots import MobileRobot
 from robosuite.utils.input_utils import *
 from robosuite.controllers.composite.composite_controller_factory import refactor_composite_controller_config
+import robosuite.utils.transform_utils as T
 
 MAX_FR = 25  # max frame rate for running simluation
 
@@ -13,38 +14,15 @@ if __name__ == "__main__":
     # Create dict to hold options that will be passed to env creation call
     options = {}
 
-    # print welcome info
-    print("Welcome to robosuite v{}!".format(suite.__version__))
-    print(suite.__logo__)
-
     # Choose environment and add it to options
     # options["env_name"] = choose_environment()
     options["env_name"] = "TwoArmPhantom"
     # options["env_name"] = "TwoArmPegInHole"
     options["env_configuration"] = "phantom_parallel"
 
-    # If a multi-arm environment has been chosen, choose configuration and appropriate robot(s)
     if "TwoArm" in options["env_name"]:
-        # # Choose env config and add it to options
-        # options["env_configuration"] = choose_multi_arm_config()
-
-        # # If chosen configuration was bimanual, the corresponding robot must be Baxter. Else, have user choose robots
-        # if options["env_configuration"] == "single-robot":
-        #     options["robots"] = choose_robots(exclude_bimanual=False, use_humanoids=True, exclude_single_arm=True)
-        # else:
-        #     options["robots"] = []
-
-        #     # Have user choose two robots
-        #     for i in range(2):
-        #         print("Please choose Robot {}...\n".format(i))
-        #         options["robots"].append(choose_robots(exclude_bimanual=False, use_humanoids=True))
         options["robots"] = ["Arx5", "Arx5"]
-        # options["robots"] = ["Baxter", "Baxter"]
-    # If a humanoid environment has been chosen, choose humanoid robots
-    # elif "Humanoid" in options["env_name"]:
-    #     options["robots"] = choose_robots(use_humanoids=True)
     else:
-        # options["robots"] = choose_robots(exclude_bimanual=False, use_humanoids=True)
         options["robots"] = ["Arx5"]
 
     # Load OSC_POSE controller configuration for Cartesian control
@@ -52,7 +30,7 @@ if __name__ == "__main__":
     arm_controller_config = suite.load_part_controller_config(default_controller=controller_name)
     robot_name = options["robots"][0]
     options["controller_configs"] = refactor_composite_controller_config(
-        arm_controller_config, robot_name, ["right", "left"]
+        arm_controller_config, robot_name, ["left", "right"]
     )
 
     # initialize the task
@@ -74,17 +52,36 @@ if __name__ == "__main__":
         if isinstance(robot, MobileRobot):
             robot.enable_parts(legs=False, base=False)
 
-    # Define target positions (relative to initial positions for safety)
-    # We assume robot0 is left and robot1 is right (or vice versa depending on config)
-    init_pos_0 = obs["robot0_eef_pos"]
-    init_pos_1 = obs["robot1_eef_pos"]
-    
-    # Example: Move both arms 20cm forward (x) and 10cm up (z)
-    target_pos_0 = init_pos_0 + np.array([0.2, 0.0, 0.1]) 
-    target_pos_1 = init_pos_1 + np.array([0.2, 0.0, 0.1])
+    # Get robot base poses for coordinate transformation
+    base_pos_0 = env.robots[0].base_pos
+    base_ori_0 = env.robots[0].base_ori
+    base_pos_1 = env.robots[1].base_pos
+    base_ori_1 = env.robots[1].base_ori
 
-    print(f"Initial Pos 0: {init_pos_0}")
-    print(f"Target Pos 0: {target_pos_0}")
+    print(f"Robot 0 Base: {base_pos_0}")
+    print(f"Robot 0 Ori: {base_ori_0}")
+    print(f"Robot 1 Base: {base_pos_1}")
+    print(f"Robot 1 Ori: {base_ori_1}")
+
+    # Capture initial orientation to maintain during movement
+    init_ori_0 = T.quat2mat(obs["robot0_eef_quat"])
+    init_ori_1 = T.quat2mat(obs["robot1_eef_quat"])
+
+    # Define targets relative to base
+    # Left Robot
+    target_pos_0_local = np.array([0.2, -0.1, 0.2])
+    target_pos_0 = base_pos_0 + base_ori_0 @ target_pos_0_local
+    
+    # Set orientation to horizontal (World Frame)
+    # Rotate 90 degrees around Y axis to point gripper forward (along World X)
+    target_ori_0 = T.euler2mat([0, 0, 0])
+
+    # Right Robot
+    target_pos_1_local = np.array([0.2, 0.1, 0.2])
+    target_pos_1 = base_pos_1 + base_ori_1 @ target_pos_1_local
+    
+    # Set orientation to horizontal (World Frame)
+    target_ori_1 = T.euler2mat([0, 0, 0])
 
     # Calculate action dimensions
     total_action_dim = env.action_dim
@@ -94,42 +91,79 @@ if __name__ == "__main__":
     gripper_dim = action_per_robot - controller_dim
     print(f"Action dim per robot: {action_per_robot}, Gripper dim: {gripper_dim}")
 
+    # Render once to initialize viewer
+    env.render()
+
     # do visualization
-    for i in tqdm.tqdm(range(300)):
+    total_steps = 500
+
+    for i in tqdm.tqdm(range(total_steps)):
         start = time.time()
         
         # Control Logic
         current_pos_0 = obs["robot0_eef_pos"]
         current_pos_1 = obs["robot1_eef_pos"]
+        current_ori_0 = T.quat2mat(obs["robot0_eef_quat"])
+        current_ori_1 = T.quat2mat(obs["robot1_eef_quat"])
         
-        kp = 2.0 # Proportional gain
+        kp = 2.0 # Proportional gain for position
+        kp_ori = 1.0 # Proportional gain for orientation
         
         # Calculate position error
-        err_0 = target_pos_0 - current_pos_0
-        err_1 = target_pos_1 - current_pos_1
+        err_pos_0 = target_pos_0 - current_pos_0
+        err_pos_1 = target_pos_1 - current_pos_1
         
+        # Calculate orientation error (orientation difference -> axis-angle)
+        # R_diff = R_target * R_current^T
+        err_ori_mat_0 = np.dot(target_ori_0, current_ori_0.T)
+        err_ori_0 = T.quat2axisangle(T.mat2quat(err_ori_mat_0))
+
+        err_ori_mat_1 = np.dot(target_ori_1, current_ori_1.T)
+        err_ori_1 = T.quat2axisangle(T.mat2quat(err_ori_mat_1))
+
+        # Gripper action: Open (0.0)
+        gripper_action_0 = np.array([1] * gripper_dim)
+        gripper_action_1 = np.array([0] * gripper_dim)
+
         # Action: [dx, dy, dz, dax, day, daz, gripper]
-        # We only control position here, orientation kept 0 (maintain)
-        # Gripper 0 (open)
-        gripper_action = np.zeros(gripper_dim)
-        action_0 = np.concatenate([np.clip(err_0 * kp, -1, 1), [0, 0, 0], gripper_action])
-        action_1 = np.concatenate([np.clip(err_1 * kp, -1, 1), [0, 0, 0], gripper_action])
+        action_0 = np.concatenate([
+            np.clip(err_pos_0 * kp, -1, 1), 
+            np.clip(err_ori_0 * kp_ori, -0.5, 0.5), 
+            gripper_action_0
+        ])
+        action_1 = np.concatenate([
+            np.clip(err_pos_1 * kp, -1, 1), 
+            np.clip(err_ori_1 * kp_ori, -0.5, 0.5), 
+            gripper_action_1
+        ])
         
         action = np.concatenate([action_0, action_1])
 
         obs, reward, done, _ = env.step(action)
+        
+        # Calculate and print distance error
+        curr_pos_0 = obs["robot0_eef_pos"]
+        curr_pos_1 = obs["robot1_eef_pos"]
+        dist_err_0 = np.linalg.norm(curr_pos_0 - target_pos_0)
+        dist_err_1 = np.linalg.norm(curr_pos_1 - target_pos_1)
+        print(f"Step {i} | Dist Err - Left: {dist_err_0:.4f}, Right: {dist_err_1:.4f}")
+
         # breakpoint()
         # Get RGB and Instance Segmentation images
         # Keys are formatted as {camera_name}_{modality}
         rgb_img = obs.get("zed_image")  # Shape: (H, W, 3)
+        rgb_img = cv2.flip(rgb_img, 1)  # Flip image horizontally for correct visualization
         seg_img = obs.get("zed_segmentation_instance")  # Shape: (H, W, 1)
+        seg_img = cv2.flip(seg_img, 1)  # Flip image horizontally for correct visualization
+
         cv2.imshow("RGB Image", cv2.cvtColor(rgb_img, cv2.COLOR_RGB2BGR))
 
-        seg_max = seg_img[:, :, 0].max()
+        # cv2.flip squeezes the channel dimension if it is 1, so seg_img is (H, W)
+        seg_max = seg_img.max()
         if seg_max > 0:
-            seg_vis = (seg_img[:, :, 0] / seg_max).astype(np.float32)
+            seg_vis = (seg_img / seg_max).astype(np.float32)
         else:
-            seg_vis = seg_img[:, :, 0].astype(np.float32)
+            seg_vis = seg_img.astype(np.float32)
 
         cv2.imshow("Instance Segmentation", seg_vis)
         cv2.waitKey(1)

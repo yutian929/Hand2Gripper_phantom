@@ -26,6 +26,7 @@
     <body name="base" pos="0 0 0">
       <!--Start of hand base-->
       <body name="base_link" pos="0.0 0.0 0.0" quat="1 0 0 0">
+        <joint name="joint0" type="hinge" class="arx5" axis="0 0 1" range="-10 10"/>
         <inertial pos="-3.764e-5 0.00006519 0.03037877" quat="1.0 0.0 0.0 0.0" mass="0.428" diaginertia="0.00060728 0.00060832 1.917e-4"/>
         <site name="right_center" pos="0 0 0" size="0.01" rgba="1 0.3 0.3 1" group="2"/>
         <geom pos="0.0 0.0 0.0" quat="1.0 0.0 0.0 0.0" name="base_link_visual" group="1" contype="0" conaffinity="0" mesh="base_link" type="mesh"/>
@@ -86,6 +87,7 @@
     <!--End of base-->
   </worldbody>
   <actuator>
+    <motor name="actuator0" joint="joint0" ctrlrange="-50 50" ctrllimited="true"/>
     <motor name="actuator1" joint="joint1" ctrlrange="-50 50" ctrllimited="true"/>
     <motor name="actuator2" joint="joint2" ctrlrange="-50 50" ctrllimited="true"/>
     <motor name="actuator3" joint="joint3" ctrlrange="-50 50" ctrllimited="true"/>

@@ -319,6 +319,15 @@ class TwoArmPhantom(TwoArmEnv):
             self._load_hand2gripper_params("camera-zed-quat_z"),
             self._load_hand2gripper_params("camera-zed-quat_w"),
         ))
+        zed_camera_offset_horizon = self._load_hand2gripper_params("camera-zed-offset_horizon")
+        
+        if zed_camera_offset_horizon is not None:
+            # Rotate around local X axis to look down
+            # Positive offset means looking down (rotating negative angle around X)
+            rot_angle = np.deg2rad(zed_camera_offset_horizon)
+            rot_quat = T.axisangle2quat(np.array([0, rot_angle, 0]))
+            zed_camera_quat = T.quat_multiply(zed_camera_quat, rot_quat)
+
         mujoco_arena.set_camera(
             camera_name="zed",
             pos=zed_camera_pos,
