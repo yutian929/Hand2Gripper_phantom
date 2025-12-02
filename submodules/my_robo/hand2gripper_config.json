@@ -1,18 +1,28 @@
 {
     "robots-left-base_x": 0.0,
     "robots-left-base_y": 0.2,
-    "robots-left-base_z": 0.7,
+    "robots-left-base_z": 0.8,
 
     "robots-right-base_x": 0.0,
     "robots-right-base_y": -0.2,
-    "robots-right-base_z": 0.7,
+    "robots-right-base_z": 0.8,
+
+    "gripper-tip-offset": 0.2,
 
     "camera-zed-pos_x": 0.0,
     "camera-zed-pos_y": 0.0,
-    "camera-zed-pos_z": 1.4,
+    "camera-zed-pos_z": 1.8,
     "camera-zed-quat_x": -0.5,
     "camera-zed-quat_y": 0.5,
     "camera-zed-quat_z": 0.5,
     "camera-zed-quat_w": -0.5,
-    "camera-zed-offset_horizon": 45.0
+    "camera-zed-offset_horizon": 60.0,
+    "camera-zed-fx": 615.973876953125,
+    "camera-zed-fy": 614.9360961914062,
+    "camera-zed-cx": 321.73553466796875,
+    "camera-zed-cy": 238.9122314453125,
+    "camera-zed-size_w": 0.0010408,
+    "camera-zed-size_h": 0.00077925,
+    "camera-zed-fov": 55.0,
+    "visualize-target-spheres": true
 }

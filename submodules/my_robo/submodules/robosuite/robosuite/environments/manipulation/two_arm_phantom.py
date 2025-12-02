@@ -9,7 +9,51 @@ from robosuite.models.arenas import EmptyArena
 from robosuite.models.tasks import ManipulationTask
 from robosuite.utils.observables import Observable, sensor
 from robosuite.utils.placement_samplers import UniformRandomSampler
+from robosuite.models.objects import BallObject
 
+def _load_hand2gripper_params(key: str):
+    """
+    Load global parameters for the environment.
+
+    Args:
+        key (str): The parameter key to load.
+    Returns:
+        The value of the global parameter.
+    """
+    hand2gripper_config_path = os.environ.get("HAND2GRIPPER_CONFIG_PATH", "hand2gripper_config.json")
+    if os.path.exists(hand2gripper_config_path): 
+        with open(hand2gripper_config_path, 'r') as f:
+            config = json.load(f)
+            val = config.get(key, None)
+            if val is not None:
+                return val
+    # Default values if config file or key does not exist
+    default_params = {
+        "robots-left-base_x": 0,
+        "robots-left-base_y": -0.2,
+        "robots-left-base_z": 0.8,
+        "robots-right-base_x": 0,
+        "robots-right-base_y": 0.2,
+        "robots-right-base_z": 0.8,
+
+        "camera-zed-pos_x": -1.0,
+        "camera-zed-pos_y": 0,
+        "camera-zed-pos_z": 1.3,
+        "camera-zed-quat_w": 0.5,
+        "camera-zed-quat_x": -0.5,
+        "camera-zed-quat_y": -0.5,
+        "camera-zed-quat_z": 0.5,
+        "camera-zed-offset_horizon": 45.0,
+        "camera-zed-fx": 615.973876953125,
+        "camera-zed-fy": 614.9360961914062,
+        "camera-zed-cx": 321.73553466796875,
+        "camera-zed-cy": 238.9122314453125,
+        "camera-zed-size_w": 0.0010408,
+        "camera-zed-size_h": 0.00077925,
+        "camera-zed-fov": 55.0,
+        "visualize-target-spheres": True,
+    }
+    return default_params.get(key, None)
 
 class TwoArmPhantom(TwoArmEnv):
     """
@@ -223,41 +267,6 @@ class TwoArmPhantom(TwoArmEnv):
         Reward function for the task.
         """
         return 0
-    
-    def _load_hand2gripper_params(self, key: str):
-        """
-        Load global parameters for the environment.
-
-        Args:
-            key (str): The parameter key to load.
-        Returns:
-            The value of the global parameter.
-        """
-        hand2gripper_config_path = os.environ.get("HAND2GRIPPER_CONFIG_PATH", "hand2gripper_config.json")
-        if os.path.exists(hand2gripper_config_path): 
-            with open(hand2gripper_config_path, 'r') as f:
-                config = json.load(f)
-                val = config.get(key, None)
-                if val is not None:
-                    return val
-        # Default values if config file or key does not exist
-        default_params = {
-            "robots-left-base_x": 0,
-            "robots-left-base_y": -0.2,
-            "robots-left-base_z": 0.8,
-            "robots-right-base_x": 0,
-            "robots-right-base_y": 0.2,
-            "robots-right-base_z": 0.8,
-
-            "camera-zed-pos_x": -1.0,
-            "camera-zed-pos_y": 0,
-            "camera-zed-pos_z": 1.3,
-            "camera-zed-quat_w": 0.5,
-            "camera-zed-quat_x": -0.5,
-            "camera-zed-quat_y": -0.5,
-            "camera-zed-quat_z": 0.5
-        }
-        return default_params.get(key, None)
 
 
     def _load_model(self):
@@ -283,14 +292,14 @@ class TwoArmPhantom(TwoArmEnv):
                 # Set up robots parallel to each other but offset from the center
                 left_robot, right_robot = self.robots
                 base_pose_left = np.array((
-                    self._load_hand2gripper_params("robots-left-base_x"),
-                    self._load_hand2gripper_params("robots-left-base_y"),
-                    self._load_hand2gripper_params("robots-left-base_z"),
+                    _load_hand2gripper_params("robots-left-base_x"),
+                    _load_hand2gripper_params("robots-left-base_y"),
+                    _load_hand2gripper_params("robots-left-base_z"),
                 ))
                 base_pose_right = np.array((
-                    self._load_hand2gripper_params("robots-right-base_x"),
-                    self._load_hand2gripper_params("robots-right-base_y"),
-                    self._load_hand2gripper_params("robots-right-base_z"),
+                    _load_hand2gripper_params("robots-right-base_x"),
+                    _load_hand2gripper_params("robots-right-base_y"),
+                    _load_hand2gripper_params("robots-right-base_z"),
                 ))
                 left_robot.robot_model.set_base_xpos(base_pose_left)
                 right_robot.robot_model.set_base_xpos(base_pose_right)
@@ -309,17 +318,17 @@ class TwoArmPhantom(TwoArmEnv):
 
         # Modify default agentview camera
         zed_camera_pos = np.array((
-            self._load_hand2gripper_params("camera-zed-pos_x"),
-            self._load_hand2gripper_params("camera-zed-pos_y"),
-            self._load_hand2gripper_params("camera-zed-pos_z"),
+            _load_hand2gripper_params("camera-zed-pos_x"),
+            _load_hand2gripper_params("camera-zed-pos_y"),
+            _load_hand2gripper_params("camera-zed-pos_z"),
         ))
         zed_camera_quat = np.array((
-            self._load_hand2gripper_params("camera-zed-quat_x"),
-            self._load_hand2gripper_params("camera-zed-quat_y"),
-            self._load_hand2gripper_params("camera-zed-quat_z"),
-            self._load_hand2gripper_params("camera-zed-quat_w"),
+            _load_hand2gripper_params("camera-zed-quat_x"),
+            _load_hand2gripper_params("camera-zed-quat_y"),
+            _load_hand2gripper_params("camera-zed-quat_z"),
+            _load_hand2gripper_params("camera-zed-quat_w"),
         ))
-        zed_camera_offset_horizon = self._load_hand2gripper_params("camera-zed-offset_horizon")
+        zed_camera_offset_horizon = _load_hand2gripper_params("camera-zed-offset_horizon")
         
         if zed_camera_offset_horizon is not None:
             # Rotate around local X axis to look down
@@ -328,18 +337,68 @@ class TwoArmPhantom(TwoArmEnv):
             rot_quat = T.axisangle2quat(np.array([0, rot_angle, 0]))
             zed_camera_quat = T.quat_multiply(zed_camera_quat, rot_quat)
 
+        # Prepare camera attributes
+        camera_attribs = {
+            "resolution": f"{self.camera_widths[0]} {self.camera_heights[0]}",
+            # "principalpixel": f"{_load_hand2gripper_params('camera-zed-cx')} {_load_hand2gripper_params('camera-zed-cy')}",  # (cx, cy)
+            # "focalpixel": f"{_load_hand2gripper_params('camera-zed-fx')} {_load_hand2gripper_params('camera-zed-fy')}",  # (fx, fy)
+            # 'sensorsize': f"{_load_hand2gripper_params('camera-zed-size_w')} {_load_hand2gripper_params('camera-zed-size_h')}",  # (size_w, size_h)
+            "fovy": f"{_load_hand2gripper_params('camera-zed-fov')}",  # field of view
+        }
+
         mujoco_arena.set_camera(
             camera_name="zed",
             pos=zed_camera_pos,
             quat=zed_camera_quat,
-            camera_attribs={"resolution": f"{self.camera_widths[0]} {self.camera_heights[0]}",},
+            camera_attribs=camera_attribs,
         )
         print(f"Set zed camera pos to {zed_camera_pos}")
+
+        # Check if we should visualize target spheres
+        visualize_spheres = _load_hand2gripper_params("visualize-target-spheres")
+        mujoco_objects = []
+
+        if visualize_spheres:
+            # Add target spheres
+            # We use obj_type="all" to ensure the body has mass (density is applied to collision geoms).
+            # Then we manually disable collisions by setting contype/conaffinity to 0.
+            self.target_sphere_0 = BallObject(
+                name="target_sphere_0",
+                size=[0.02],
+                rgba=[1, 0, 0, 0.5],
+                obj_type="all",
+                joints=[dict(type="free", damping="0.0005")],
+                density=1000,
+            )
+            # Disable collision for sphere 0
+            for geom in self.target_sphere_0.get_obj().findall(".//geom"):
+                geom.set("contype", "0")
+                geom.set("conaffinity", "0")
+            # Disable gravity for sphere 0 (gravcomp=1 cancels gravity)
+            self.target_sphere_0.get_obj().set("gravcomp", "1")
+
+            self.target_sphere_1 = BallObject(
+                name="target_sphere_1",
+                size=[0.02],
+                rgba=[0, 1, 0, 0.5],
+                obj_type="all",
+                joints=[dict(type="free", damping="0.0005")],
+                density=1000,
+            )
+            # Disable collision for sphere 1
+            for geom in self.target_sphere_1.get_obj().findall(".//geom"):
+                geom.set("contype", "0")
+                geom.set("conaffinity", "0")
+            # Disable gravity for sphere 1
+            self.target_sphere_1.get_obj().set("gravcomp", "1")
+
+            mujoco_objects = [self.target_sphere_0, self.target_sphere_1]
+
         # task includes arena, robot, and objects of interest
         self.model = ManipulationTask(
             mujoco_arena=mujoco_arena,
             mujoco_robots=[robot.robot_model for robot in self.robots],
-            mujoco_objects=None,
+            mujoco_objects=mujoco_objects,
         )
 
     def _setup_references(self):
