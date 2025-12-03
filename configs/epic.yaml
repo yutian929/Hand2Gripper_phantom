@@ -33,5 +33,5 @@ constrained_hand: false
 depth_for_overlay: true
 render: true
 camera_intrinsics: "camera/camera_intrinsics_d435.json"
-# camera_extrinsics: "camera/camera_extrinsics_ego_bimanual_shoulders_ur5e.json"
-camera_extrinsics: "camera/camera_extrinsics_ego_bimanual_shoulders_arx5.json"
+camera_extrinsics: "camera/camera_extrinsics_ego_bimanual_shoulders_ur5e.json"
+# camera_extrinsics: "camera/camera_extrinsics_ego_bimanual_shoulders_arx5.json"

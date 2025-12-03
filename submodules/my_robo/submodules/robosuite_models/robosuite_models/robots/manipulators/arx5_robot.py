@@ -20,7 +20,7 @@ class Arx5(ManipulatorModel):
         super().__init__(robosuite_model_path_completion("robots/arx5/robot.xml"), idn=idn)
 
         # Set joint damping
-        self.set_joint_attribute(attrib="damping", values=np.array((0.0, 0.1, 0.1, 0.1, 0.1, 0.1, 0.01)))
+        self.set_joint_attribute(attrib="damping", values=np.array((0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.01)))
 
     @property
     def default_base(self):

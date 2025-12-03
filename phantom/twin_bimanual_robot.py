@@ -244,7 +244,23 @@ class TwinBimanualRobot:
         if self.epic:
             # Transform position and orientation to Epic Kitchen coordinate frame
             ee_pos = self.base_T_1[:3, 3] + self.base_T_1[:3, :3] @ ee_pos
-            axis_angle = Rotation.from_matrix(self.base_T_1[:3, :3] @ Rotation.from_quat(ee_quat_xyzw).as_matrix()).as_rotvec()
+            
+            # >>> Hand2Gripper >>>
+            # Calculate rotation matrix in robot frame
+            rot_mat = self.base_T_1[:3, :3] @ Rotation.from_quat(ee_quat_xyzw).as_matrix()
+            
+            if self.robot_name == "Arx5":
+                # Fix for Arx5 gripper orientation (vertical vs horizontal)
+                # Apply a rotation offset to align the gripper correctly.
+                # Try rotating 90 degrees around Y axis (local) to bring Z axis down/forward.
+                # Adjust 'y' to 'x' or 'z', and 90 to -90/180 as needed based on visual feedback.
+                correction = Rotation.from_euler('x', 180, degrees=True).as_matrix()
+                rot_mat = rot_mat @ correction
+            
+            axis_angle = Rotation.from_matrix(rot_mat).as_rotvec()
+            # <<< Hand2Gripper <<<
+            
+            # axis_angle = Rotation.from_matrix(self.base_T_1[:3, :3] @ Rotation.from_quat(ee_quat_xyzw).as_matrix()).as_rotvec()
         elif not self.epic:
             # Apply 135-degree Z rotation for standard setup
             rot = Rotation.from_quat(ee_quat_xyzw)
@@ -359,7 +375,7 @@ class TwinBimanualRobot:
             # Epic Kitchen coordinate frame
             right_pos_error = np.linalg.norm(obs['robot0_eef_pos']-self.base_T_1[:3, 3] - self.base_T_1[:3, :3] @ state["pos"][0])
             left_pos_error = np.linalg.norm(obs['robot1_eef_pos']-self.base_T_1[:3, 3] - self.base_T_1[:3, :3] @ state["pos"][1])
-
+        print(f"\nLeft pos error: {left_pos_error:.4f}, Right pos error: {right_pos_error:.4f}")
         # Compile output dictionary
         output = {
             "robot_mask": robot_mask,
@@ -472,6 +488,7 @@ class TwinBimanualRobot:
             action = np.concatenate([action_0, np.array(gripper_action[0]).reshape(1,), action_1, np.array(gripper_action[1]).reshape(1,)])
 
         # Execute action for specified number of steps
+        print(f"Executing action {action}")
         for _ in range(n_steps):
             # breakpoint()
             obs, _, _, _ = self.env.step(action)

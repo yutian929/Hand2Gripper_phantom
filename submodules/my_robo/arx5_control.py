@@ -11,6 +11,16 @@ import robosuite.utils.transform_utils as T
 
 MAX_FR = 25  # max frame rate for running simluation
 
+def _load_hand2gripper_params(key: str):
+    hand2gripper_config_path = os.environ.get("HAND2GRIPPER_CONFIG_PATH", "hand2gripper_config.json")
+    if os.path.exists(hand2gripper_config_path): 
+        with open(hand2gripper_config_path, 'r') as f:
+            config = json.load(f)
+            val = config.get(key, None)
+            if val is not None:
+                return val
+    return None
+
 class DualArmInpaintor:
     def __init__(self, env_name="TwoArmPhantom", robot_name="Arx5", render=True):
         # Create dict to hold options that will be passed to env creation call
@@ -57,9 +67,14 @@ class DualArmInpaintor:
         # Get robot base poses for coordinate transformation
         self.base_pos = [self.env.robots[0].base_pos, self.env.robots[1].base_pos]
         self.base_ori = [self.env.robots[0].base_ori, self.env.robots[1].base_ori]
+        
+        self.gripper_tip_offset = _load_hand2gripper_params("gripper-tip-offset")
+        if self.gripper_tip_offset is None:
+            self.gripper_tip_offset = 0.0
 
         print(f"Robot 0 Base: {self.base_pos[0]}")
         print(f"Robot 1 Base: {self.base_pos[1]}")
+        print(f"Gripper Tip Offset: {self.gripper_tip_offset} (along X-axis)")
 
         # Calculate action dimensions
         total_action_dim = self.env.action_dim
@@ -89,10 +104,10 @@ class DualArmInpaintor:
         Execute a sequence of targets for both arms.
         
         Args:
-            left_pos_seq: List or array of (N, 3) target positions for left arm (World Frame)
-            left_ori_seq: List or array of (N, 3, 3) target rotation matrices for left arm (World Frame)
-            right_pos_seq: List or array of (N, 3) target positions for right arm (World Frame)
-            right_ori_seq: List or array of (N, 3, 3) target rotation matrices for right arm (World Frame)
+            left_pos_seq: List or array of (N, 3) target positions for left arm (Gripper Tip, World Frame)
+            left_ori_seq: List or array of (N, 3, 3) target rotation matrices for left arm (Gripper Tip, World Frame)
+            right_pos_seq: List or array of (N, 3) target positions for right arm (Gripper Tip, World Frame)
+            right_ori_seq: List or array of (N, 3, 3) target rotation matrices for right arm (Gripper Tip, World Frame)
             left_gripper_seq: Optional (N,) array of gripper values (1=open, -1=closed)
             right_gripper_seq: Optional (N,) array of gripper values
             steps_per_waypoint: Number of simulation steps to hold each waypoint
@@ -132,21 +147,28 @@ class DualArmInpaintor:
             if idx >= traj_len:
                 idx = traj_len - 1
             
-            # Get Targets
-            target_pos_0 = left_pos_seq[idx]
+            # Get Targets (Gripper Tip)
+            target_pos_0_tip = left_pos_seq[idx]
             target_ori_0 = left_ori_seq[idx]
-            target_pos_1 = right_pos_seq[idx]
+            target_pos_1_tip = right_pos_seq[idx]
             target_ori_1 = right_ori_seq[idx]
+
+            # Calculate Flange Targets for Controller
+            # Offset along X-axis of the end-effector frame
+            offset_vec = np.array([self.gripper_tip_offset, 0, 0])
             
-            # Get Current State
+            target_pos_0_flange = target_pos_0_tip - target_ori_0 @ offset_vec
+            target_pos_1_flange = target_pos_1_tip - target_ori_1 @ offset_vec
+            
+            # Get Current State (Flange)
             current_pos_0 = self.obs["robot0_eef_pos"]
             current_pos_1 = self.obs["robot1_eef_pos"]
             current_ori_0 = T.quat2mat(self.obs["robot0_eef_quat"])
             current_ori_1 = T.quat2mat(self.obs["robot1_eef_quat"])
             
             # --- PID Calculation for Left Robot ---
-            # Position
-            err_pos_0 = target_pos_0 - current_pos_0
+            # Position (Error relative to Flange Target)
+            err_pos_0 = target_pos_0_flange - current_pos_0
             integral_pos_0 += err_pos_0
             derivative_pos_0 = err_pos_0 - prev_err_pos_0
             prev_err_pos_0 = err_pos_0
@@ -161,8 +183,8 @@ class DualArmInpaintor:
             action_ori_0 = (kp_ori * err_ori_0) + (ki_ori * integral_ori_0) + (kd_ori * derivative_ori_0)
 
             # --- PID Calculation for Right Robot ---
-            # Position
-            err_pos_1 = target_pos_1 - current_pos_1
+            # Position (Error relative to Flange Target)
+            err_pos_1 = target_pos_1_flange - current_pos_1
             integral_pos_1 += err_pos_1
             derivative_pos_1 = err_pos_1 - prev_err_pos_1
             prev_err_pos_1 = err_pos_1
@@ -194,18 +216,20 @@ class DualArmInpaintor:
             
             action = np.concatenate([action_0, action_1])
 
-            # Update visual spheres to match targets
-            self._update_sphere("target_sphere_0", target_pos_0)
-            self._update_sphere("target_sphere_1", target_pos_1)
+            # Update visual spheres to match targets (Tip)
+            self._update_sphere("target_sphere_0", target_pos_0_tip)
+            self._update_sphere("target_sphere_1", target_pos_1_tip)
 
             # Step Environment
             self.obs, reward, done, _ = self.env.step(action)
             
-            # Calculate and print distance error
-            curr_pos_0 = self.obs["robot0_eef_pos"]
-            curr_pos_1 = self.obs["robot1_eef_pos"]
-            dist_err_0 = np.linalg.norm(curr_pos_0 - target_pos_0)
-            dist_err_1 = np.linalg.norm(curr_pos_1 - target_pos_1)
+            # Calculate and print distance error (Tip Error)
+            # Current Tip Position = Current Flange Pos + Current Ori @ Offset
+            curr_pos_0_tip = self.obs["robot0_eef_pos"] + T.quat2mat(self.obs["robot0_eef_quat"]) @ offset_vec
+            curr_pos_1_tip = self.obs["robot1_eef_pos"] + T.quat2mat(self.obs["robot1_eef_quat"]) @ offset_vec
+            
+            dist_err_0 = np.linalg.norm(curr_pos_0_tip - target_pos_0_tip)
+            dist_err_1 = np.linalg.norm(curr_pos_1_tip - target_pos_1_tip)
             print(f"Step {i} | Dist Err - Left: {dist_err_0:.4f}, Right: {dist_err_1:.4f}")
             
             # Visualization
@@ -250,14 +274,14 @@ if __name__ == "__main__":
     steps = 500
     
     # Left Robot Target (Local -> World)
-    target_pos_0_local = np.array([0.2, -0.05, 0.2])
+    target_pos_0_local = np.array([0.4, 0.1, 0.2])
     target_pos_0 = controller.base_pos[0] + controller.base_ori[0] @ target_pos_0_local
-    target_ori_0 = T.euler2mat([0.2, 0.3, 0.1]) # Horizontal
+    target_ori_0 = T.euler2mat([0.0, 0.0, 0.0]) # Horizontal
     
     # Right Robot Target (Local -> World)
-    target_pos_1_local = np.array([0.0, 0.1, 0.2])
+    target_pos_1_local = np.array([0.4, -0.1, 0.2])
     target_pos_1 = controller.base_pos[1] + controller.base_ori[1] @ target_pos_1_local
-    target_ori_1 = T.euler2mat([0.15, 0.15, 0]) # Horizontal
+    target_ori_1 = T.euler2mat([0.0, 0.0, 0]) # Horizontal
 
     # Create sequences (repeating the same target for demonstration)
     # In a real scenario, these would be varying arrays
