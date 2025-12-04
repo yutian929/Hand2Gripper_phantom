@@ -19,7 +19,34 @@ def _load_hand2gripper_params(key: str):
             val = config.get(key, None)
             if val is not None:
                 return val
-    return None
+    # Default values if config file or key does not exist
+    default_params = {
+        "gripper-tip-offset": 0.2,
+    }
+    return default_params.get(key, None)
+
+def transform_points(points, trans_mat):
+    """
+    Transform points using a 4x4 transformation matrix.
+    points: (N, 3)
+    trans_mat: (4, 4)
+    """
+    ones = np.ones((points.shape[0], 1))
+    points_h = np.hstack([points, ones])
+    points_transformed_h = (trans_mat @ points_h.T).T
+    return points_transformed_h[:, :3]
+
+def transform_coordinates(points):
+    """
+    Transform coordinates:
+    Original (HaMeR): Z-forward, X-right, Y-down
+    Target: X-forward, Y-left, Z-up
+    Transformation: x' = z, y' = -x, z' = -y
+    """
+    x = points[:, 0]
+    y = points[:, 1]
+    z = points[:, 2]
+    return np.stack([z, -x, -y], axis=1)
 
 class DualArmInpaintor:
     def __init__(self, env_name="TwoArmPhantom", robot_name="Arx5", render=True):
@@ -57,7 +84,7 @@ class DualArmInpaintor:
         self.obs = self.env.reset()
         
         if render:
-            self.env.viewer.set_camera(camera_id=0)
+            self.env.viewer.set_camera(camera_id=1)
             self.env.render()
             
         for robot in self.env.robots:
@@ -267,28 +294,90 @@ class DualArmInpaintor:
 
 
 if __name__ == "__main__":
+    data_left_hand = np.load("hand_data_left.npz")
+    data_right_hand = np.load("hand_data_right.npz")
+    
+    # Calculate centroids (N, 3)
+    left_centroids = np.mean(data_left_hand["kpts_3d"], axis=1)
+    right_centroids = np.mean(data_right_hand["kpts_3d"], axis=1)
+    
+    # Apply coordinate transformation
+    left_centroids = transform_coordinates(left_centroids)
+    right_centroids = transform_coordinates(right_centroids)
+
+    # Ensure same length
+    min_len = min(len(left_centroids), len(right_centroids))
+    left_centroids = left_centroids[:min_len]
+    right_centroids = right_centroids[:min_len]
+    left_centroids = left_centroids[::10, :]
+    right_centroids = right_centroids[::10, :]
+    min_len = min(len(left_centroids), len(right_centroids))
+
+    # Camera World Pose
+    cam_pos = np.array([
+        _load_hand2gripper_params("camera-zed-pos_x"),
+        _load_hand2gripper_params("camera-zed-pos_y"),
+        _load_hand2gripper_params("camera-zed-pos_z")
+    ])
+    cam_quat = np.array([
+        _load_hand2gripper_params("camera-zed-quat_x"),
+        _load_hand2gripper_params("camera-zed-quat_y"),
+        _load_hand2gripper_params("camera-zed-quat_z"),
+        _load_hand2gripper_params("camera-zed-quat_w")
+    ])
+    T_world_cam = np.eye(4)
+    T_world_cam[:3, 3] = cam_pos
+    T_world_cam[:3, :3] = T.quat2mat(cam_quat)
+
+    # Left Robot Base World Pose
+    left_base_pos = np.array([
+        _load_hand2gripper_params("robots-left-base_x"),
+        _load_hand2gripper_params("robots-left-base_y"),
+        _load_hand2gripper_params("robots-left-base_z")
+    ])
+    T_world_base_left = np.eye(4)
+    T_world_base_left[:3, 3] = left_base_pos
+
+    # Right Robot Base World Pose
+    right_base_pos = np.array([
+        _load_hand2gripper_params("robots-right-base_x"),
+        _load_hand2gripper_params("robots-right-base_y"),
+        _load_hand2gripper_params("robots-right-base_z")
+    ])
+    T_world_base_right = np.eye(4)
+    T_world_base_right[:3, 3] = right_base_pos
+
+    # Calculate T_cam2base = inv(T_world_base) @ T_world_cam
+    T_cam2base_left = np.linalg.inv(T_world_base_left) @ T_world_cam
+    T_cam2base_right = np.linalg.inv(T_world_base_right) @ T_world_cam
+
+    # Transform centroids to robot base frame (Local)
+    left_pos_local = transform_points(left_centroids, T_cam2base_left)
+    right_pos_local = transform_points(right_centroids, T_cam2base_right)
+    # breakpoint()
     # Initialize Controller
     controller = DualArmInpaintor()
 
     # --- Define Trajectory Sequences ---
-    steps = 500
+    steps = min_len
     
-    # Left Robot Target (Local -> World)
-    target_pos_0_local = np.array([0.4, 0.1, 0.2])
-    target_pos_0 = controller.base_pos[0] + controller.base_ori[0] @ target_pos_0_local
-    target_ori_0 = T.euler2mat([0.0, 0.0, 0.0]) # Horizontal
-    
-    # Right Robot Target (Local -> World)
-    target_pos_1_local = np.array([0.4, -0.1, 0.2])
-    target_pos_1 = controller.base_pos[1] + controller.base_ori[1] @ target_pos_1_local
-    target_ori_1 = T.euler2mat([0.0, 0.0, 0]) # Horizontal
+    # Fixed orientation for now (Horizontal)
+    target_ori_0 = T.euler2mat([1.5, 0.0, 0.0]) 
+    target_ori_1 = T.euler2mat([0.0, 1.5, 0.0]) 
 
-    # Create sequences (repeating the same target for demonstration)
-    # In a real scenario, these would be varying arrays
-    left_pos_seq = [target_pos_0] * steps
+    # Create orientation sequences
     left_ori_seq = [target_ori_0] * steps
-    right_pos_seq = [target_pos_1] * steps
     right_ori_seq = [target_ori_1] * steps
+    
+    # Convert Local to World Frame for execution
+    left_pos_seq = []
+    right_pos_seq = []
+    for i in range(steps):
+        # Apply Base -> World
+        p0 = controller.base_pos[0] + controller.base_ori[0] @ left_pos_local[i]
+        p1 = controller.base_pos[1] + controller.base_ori[1] @ right_pos_local[i]
+        left_pos_seq.append(np.array([0.5, 0, 0.8]))
+        right_pos_seq.append(p1)
     
     # Execute
     try:

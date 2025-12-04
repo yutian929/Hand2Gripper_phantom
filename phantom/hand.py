@@ -401,9 +401,14 @@ class HandModel:
         the current timestep.
         
         Args:
-            vertices: Array of 21 3D vertex positions
+            vertices: Array of 21 3D vertex positions (Robot Frame)
             timestamp: Time of the frame in seconds
             hand_detected: Whether hand was successfully detected
+            img_rgb: RGB image for Hand2Gripper inference
+            bbox: Bounding box for Hand2Gripper inference
+            contact_logits: Contact probabilities
+            hand_side: "left" or "right"
+            kpts_3d_cf: Array of 21 3D vertex positions in Camera Frame (N, 21, 3)
         """
         if len(vertices) != 21:
             raise ValueError(f"Expected 21 vertices, got {len(vertices)}")
@@ -420,7 +425,7 @@ class HandModel:
         pred_triple = self.hand2gripper_inference.predict(
             color=img_rgb.astype(np.uint8),
             bbox=bbox.astype(np.int32),
-            keypoints_3d=kpts_3d_cf.astype(np.float32),
+            keypoints_3d=kpts_3d_cf.astype(np.float32), # Expects Camera Frame XYZ
             contact=contact_logits.astype(np.float32),
             is_right=np.array([hand_side == "right"], dtype=np.bool_),
         )

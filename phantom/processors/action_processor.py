@@ -697,7 +697,10 @@ class ActionProcessor(BaseProcessor):
         Convert hand keypoints from camera frame to robot frame coordinates.
         
         Args:
-            skeleton_poses_cf (np.ndarray): Hand poses in camera frame, shape (N, 21, 3)
+            skeleton_poses_cf (np.ndarray): Hand poses in camera frame, shape (N, 21, 3).
+                                          Format: (Batch, Joints, XYZ).
+                                          Units: Meters.
+                                          Coordinate System: Camera Frame (Right-handed, Z-forward usually).
             T_cam2robot (np.ndarray): 4x4 transformation matrix from camera to robot frame
             
         Returns:
