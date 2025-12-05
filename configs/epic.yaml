@@ -22,8 +22,9 @@ debug_cameras: ['sideview', 'birdview', 'frontview'] # Add other robomimic camer
 input_resolution: 480
 output_resolution: 480
 robot: "Arx5"
+my_robo: true
 # robot: "UR5e"
-# robot: "Kinova3"
+# my_robo: false
 gripper: "Robotiq85"
 square: false
 epic: true

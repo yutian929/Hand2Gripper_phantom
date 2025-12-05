@@ -51,6 +51,7 @@ class BaseProcessor:
         self.depth_for_overlay = cfg.depth_for_overlay
         self.render = cfg.render
         self.debug_cameras = getattr(cfg, 'debug_cameras', [])
+        self.my_robo = getattr(cfg, 'my_robo', False)  # >>> Hand2Gripper >>> #
         
         # Apply bimanual setup logic
         if self.bimanual_setup != "single_arm":

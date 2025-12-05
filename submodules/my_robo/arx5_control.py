@@ -84,7 +84,7 @@ class DualArmInpaintor:
         self.obs = self.env.reset()
         
         if render:
-            self.env.viewer.set_camera(camera_id=1)
+            self.env.viewer.set_camera(camera_id=0)
             self.env.render()
             
         for robot in self.env.robots:
@@ -126,7 +126,7 @@ class DualArmInpaintor:
             pass # Joint not found
 
     def execute_trajectory(self, left_pos_seq, left_ori_seq, right_pos_seq, right_ori_seq, 
-                           left_gripper_seq=None, right_gripper_seq=None, steps_per_waypoint=50):
+                           left_gripper_seq=None, right_gripper_seq=None, steps_per_waypoint=1):
         """
         Execute a sequence of targets for both arms.
         
@@ -294,26 +294,40 @@ class DualArmInpaintor:
 
 
 if __name__ == "__main__":
-    data_left_hand = np.load("hand_data_left.npz")
-    data_right_hand = np.load("hand_data_right.npz")
-    
-    # Calculate centroids (N, 3)
-    left_centroids = np.mean(data_left_hand["kpts_3d"], axis=1)
-    right_centroids = np.mean(data_right_hand["kpts_3d"], axis=1)
-    
-    # Apply coordinate transformation
-    left_centroids = transform_coordinates(left_centroids)
-    right_centroids = transform_coordinates(right_centroids)
+    # Load smoothed actions
+    try:
+        data_left = np.load("smoothed_actions_left_shoulders.npz")
+        data_right = np.load("smoothed_actions_right_shoulders.npz")
+    except FileNotFoundError:
+        print("Error: smoothed_actions_left_shoulders.npz or smoothed_actions_right_shoulders.npz not found.")
+        exit()
 
-    # Ensure same length
-    min_len = min(len(left_centroids), len(right_centroids))
-    left_centroids = left_centroids[:min_len]
-    right_centroids = right_centroids[:min_len]
-    left_centroids = left_centroids[::10, :]
-    right_centroids = right_centroids[::10, :]
-    min_len = min(len(left_centroids), len(right_centroids))
+    # Extract data (Optical Frame)
+    left_pts = data_left["ee_pts"]
+    left_oris = data_left["ee_oris"]
+    left_widths = data_left["ee_widths"]
+    
+    right_pts = data_right["ee_pts"]
+    right_oris = data_right["ee_oris"]
+    right_widths = data_right["ee_widths"]
 
-    # Camera World Pose
+    # Transform Optical -> Camera Link
+    # Transformation: x' = z, y' = -x, z' = -y
+    R_transform = np.array([
+        [0, 0, 1],
+        [-1, 0, 0],
+        [0, -1, 0]
+    ])
+
+    # Transform positions
+    left_pts_link = (R_transform @ left_pts.T).T
+    right_pts_link = (R_transform @ right_pts.T).T
+
+    # Transform orientations
+    left_oris_link = np.matmul(R_transform, left_oris)
+    right_oris_link = np.matmul(R_transform, right_oris)
+
+    # Camera World Pose (Camera Link Frame)
     cam_pos = np.array([
         _load_hand2gripper_params("camera-zed-pos_x"),
         _load_hand2gripper_params("camera-zed-pos_y"),
@@ -351,36 +365,44 @@ if __name__ == "__main__":
     T_cam2base_left = np.linalg.inv(T_world_base_left) @ T_world_cam
     T_cam2base_right = np.linalg.inv(T_world_base_right) @ T_world_cam
 
-    # Transform centroids to robot base frame (Local)
-    left_pos_local = transform_points(left_centroids, T_cam2base_left)
-    right_pos_local = transform_points(right_centroids, T_cam2base_right)
-    # breakpoint()
+    # Transform points to robot base frame (Local)
+    left_pos_local = transform_points(left_pts_link, T_cam2base_left)
+    right_pos_local = transform_points(right_pts_link, T_cam2base_right)
+    
+    # Transform orientations to robot base frame (Local)
+    left_ori_local = np.matmul(T_cam2base_left[:3, :3], left_oris_link)
+    right_ori_local = np.matmul(T_cam2base_right[:3, :3], right_oris_link)
+
     # Initialize Controller
     controller = DualArmInpaintor()
 
-    # --- Define Trajectory Sequences ---
-    steps = min_len
-    
-    # Fixed orientation for now (Horizontal)
-    target_ori_0 = T.euler2mat([1.5, 0.0, 0.0]) 
-    target_ori_1 = T.euler2mat([0.0, 1.5, 0.0]) 
-
-    # Create orientation sequences
-    left_ori_seq = [target_ori_0] * steps
-    right_ori_seq = [target_ori_1] * steps
-    
     # Convert Local to World Frame for execution
+    steps = len(left_pos_local)
     left_pos_seq = []
     right_pos_seq = []
+    left_ori_seq = []
+    right_ori_seq = []
+    
+    # Map gripper widths to actions (1=open, -1=closed)
+    # Assuming width > 0.04 is open
+    left_gripper_seq = np.where(left_widths > 0.04, 1.0, -1.0)
+    right_gripper_seq = np.where(right_widths > 0.04, 1.0, -1.0)
+
     for i in range(steps):
         # Apply Base -> World
         p0 = controller.base_pos[0] + controller.base_ori[0] @ left_pos_local[i]
         p1 = controller.base_pos[1] + controller.base_ori[1] @ right_pos_local[i]
-        left_pos_seq.append(np.array([0.5, 0, 0.8]))
+        
+        o0 = controller.base_ori[0] @ left_ori_local[i]
+        o1 = controller.base_ori[1] @ right_ori_local[i]
+
+        left_pos_seq.append(p0)
         right_pos_seq.append(p1)
+        left_ori_seq.append(o0)
+        right_ori_seq.append(o1)
     
     # Execute
     try:
-        controller.execute_trajectory(left_pos_seq, left_ori_seq, right_pos_seq, right_ori_seq)
+        controller.execute_trajectory(left_pos_seq, left_ori_seq, right_pos_seq, right_ori_seq, left_gripper_seq, right_gripper_seq)
     finally:
         controller.close()

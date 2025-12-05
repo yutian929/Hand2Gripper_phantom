@@ -161,9 +161,11 @@ class ActionProcessor(BaseProcessor):
         assert len(left_sequence.frame_indices) == len(right_sequence.frame_indices) == len(imgs_rgb), "Frame count mismatch among left hand, right hand, and RGB images."
         assert len(bbox_data['left_bboxes']) == len(bbox_data['right_bboxes']) == len(imgs_rgb), "Frame count mismatch among bounding boxes and RGB images."
         
+        if self.my_robo:
+            print("\nmy_robo is True: Using Hand2Gripper processing pipeline.")
+            self.T_cam2robot = np.eye(4)  # Identity matrix for Hand2Gripper setup
         left_actions = self._process_hand_sequence_hand2gripper(left_sequence, self.T_cam2robot, imgs_rgb, bbox_data['left_bboxes'], "left")
         right_actions = self._process_hand_sequence_hand2gripper(right_sequence, self.T_cam2robot, imgs_rgb, bbox_data['right_bboxes'], "right")
-
         # Combine detection results using OR logic - frame is valid if either hand detected
         union_indices = np.where(left_sequence.hand_detected | right_sequence.hand_detected)[0]
 
