@@ -15,16 +15,16 @@ mode: ["all"]  # Default processing mode
 demo_num: null  # Process specific demo number (null = process all videos in the root folder)
 
 # Additional settings
-debug_cameras: ['sideview', 'birdview', 'frontview'] # Add other robomimic cameras like sideview, etc. Warning: this significantly slows down the processing time
-
+# debug_cameras: ['sideview', 'birdview', 'frontview'] # Add other robomimic cameras like sideview, etc. Warning: this significantly slows down the processing time
+debug_cameras: []
 
 # EPIC-KITCHENS configuration override
 input_resolution: 480
 output_resolution: 480
-robot: "Arx5"
-my_robo: true
-# robot: "UR5e"
-# my_robo: false
+# robot: "Arx5"
+# my_robo: true
+robot: "UR5e"
+my_robo: false
 gripper: "Robotiq85"
 square: false
 epic: true
@@ -32,7 +32,7 @@ bimanual_setup: "shoulders"
 target_hand: "both"
 constrained_hand: false
 depth_for_overlay: true
-render: true
+render: false
 camera_intrinsics: "camera/camera_intrinsics_d435.json"
 camera_extrinsics: "camera/camera_extrinsics_ego_bimanual_shoulders_ur5e.json"
 # camera_extrinsics: "camera/camera_extrinsics_ego_bimanual_shoulders_arx5.json"

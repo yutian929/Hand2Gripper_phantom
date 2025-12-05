@@ -49,7 +49,7 @@ def transform_coordinates(points):
     return np.stack([z, -x, -y], axis=1)
 
 class DualArmInpaintor:
-    def __init__(self, env_name="TwoArmPhantom", robot_name="Arx5", render=True):
+    def __init__(self, env_name="TwoArmPhantom", robot_name="UR5e", render=True):
         # Create dict to hold options that will be passed to env creation call
         options = {}
         options["env_name"] = env_name
@@ -126,7 +126,7 @@ class DualArmInpaintor:
             pass # Joint not found
 
     def execute_trajectory(self, left_pos_seq, left_ori_seq, right_pos_seq, right_ori_seq, 
-                           left_gripper_seq=None, right_gripper_seq=None, steps_per_waypoint=1):
+                           left_gripper_seq=None, right_gripper_seq=None, steps_per_waypoint=50):
         """
         Execute a sequence of targets for both arms.
         

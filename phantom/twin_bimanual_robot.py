@@ -188,8 +188,10 @@ class TwinBimanualRobot:
         options["camera_principalpixel"] = self.camera_params.principalpixel
         options["camera_focalpixel"] = self.camera_params.focalpixel
 
-        options["force_x"] = 1.0  # X position offset for robot base
-        options["force_z"] = 1.2  # Z position offset for robot base
+        # >>> Hand2Gripper >>> #
+        # options["force_x"] = 1.0  # X position offset for robot base
+        # options["force_z"] = 1.2  # Z position offset for robot base
+        # <<< Hand2Gripper <<< #
 
         # Create the robosuite environment
         # breakpoint()
@@ -488,7 +490,7 @@ class TwinBimanualRobot:
             action = np.concatenate([action_0, np.array(gripper_action[0]).reshape(1,), action_1, np.array(gripper_action[1]).reshape(1,)])
 
         # Execute action for specified number of steps
-        print(f"Executing action {action}")
+        # print(f"\nExecuting action {action}")
         for _ in range(n_steps):
             # breakpoint()
             obs, _, _, _ = self.env.step(action)

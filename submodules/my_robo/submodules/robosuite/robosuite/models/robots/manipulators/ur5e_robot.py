@@ -19,7 +19,8 @@ class UR5e(ManipulatorModel):
 
     @property
     def default_base(self):
-        return "RethinkMount"
+        # return "RethinkMount"
+        return "NullMount"  # >>> Hand2Gripper >>> #
 
     @property
     def default_gripper(self):
