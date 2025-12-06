@@ -49,7 +49,7 @@ def transform_coordinates(points):
     return np.stack([z, -x, -y], axis=1)
 
 class DualArmInpaintor:
-    def __init__(self, env_name="TwoArmPhantom", robot_name="UR5e", render=True):
+    def __init__(self, env_name="TwoArmPhantom", robot_name="Arx5", render=True):
         # Create dict to hold options that will be passed to env creation call
         options = {}
         options["env_name"] = env_name
@@ -84,7 +84,7 @@ class DualArmInpaintor:
         self.obs = self.env.reset()
         
         if render:
-            self.env.viewer.set_camera(camera_id=0)
+            self.env.viewer.set_camera(camera_id=1)
             self.env.render()
             
         for robot in self.env.robots:
@@ -126,7 +126,7 @@ class DualArmInpaintor:
             pass # Joint not found
 
     def execute_trajectory(self, left_pos_seq, left_ori_seq, right_pos_seq, right_ori_seq, 
-                           left_gripper_seq=None, right_gripper_seq=None, steps_per_waypoint=50):
+                           left_gripper_seq=None, right_gripper_seq=None, steps_per_waypoint=1):
         """
         Execute a sequence of targets for both arms.
         
@@ -343,66 +343,24 @@ if __name__ == "__main__":
     T_world_cam[:3, 3] = cam_pos
     T_world_cam[:3, :3] = T.quat2mat(cam_quat)
 
-    # Left Robot Base World Pose
-    left_base_pos = np.array([
-        _load_hand2gripper_params("robots-left-base_x"),
-        _load_hand2gripper_params("robots-left-base_y"),
-        _load_hand2gripper_params("robots-left-base_z")
-    ])
-    T_world_base_left = np.eye(4)
-    T_world_base_left[:3, 3] = left_base_pos
-
-    # Right Robot Base World Pose
-    right_base_pos = np.array([
-        _load_hand2gripper_params("robots-right-base_x"),
-        _load_hand2gripper_params("robots-right-base_y"),
-        _load_hand2gripper_params("robots-right-base_z")
-    ])
-    T_world_base_right = np.eye(4)
-    T_world_base_right[:3, 3] = right_base_pos
-
-    # Calculate T_cam2base = inv(T_world_base) @ T_world_cam
-    T_cam2base_left = np.linalg.inv(T_world_base_left) @ T_world_cam
-    T_cam2base_right = np.linalg.inv(T_world_base_right) @ T_world_cam
-
-    # Transform points to robot base frame (Local)
-    left_pos_local = transform_points(left_pts_link, T_cam2base_left)
-    right_pos_local = transform_points(right_pts_link, T_cam2base_right)
+    # Transform points to World Frame directly
+    left_pos_world = transform_points(left_pts_link, T_world_cam)
+    right_pos_world = transform_points(right_pts_link, T_world_cam)
     
-    # Transform orientations to robot base frame (Local)
-    left_ori_local = np.matmul(T_cam2base_left[:3, :3], left_oris_link)
-    right_ori_local = np.matmul(T_cam2base_right[:3, :3], right_oris_link)
+    # Transform orientations to World Frame directly
+    left_ori_world = np.matmul(T_world_cam[:3, :3], left_oris_link)
+    right_ori_world = np.matmul(T_world_cam[:3, :3], right_oris_link)
 
     # Initialize Controller
     controller = DualArmInpaintor()
 
-    # Convert Local to World Frame for execution
-    steps = len(left_pos_local)
-    left_pos_seq = []
-    right_pos_seq = []
-    left_ori_seq = []
-    right_ori_seq = []
-    
     # Map gripper widths to actions (1=open, -1=closed)
     # Assuming width > 0.04 is open
     left_gripper_seq = np.where(left_widths > 0.04, 1.0, -1.0)
     right_gripper_seq = np.where(right_widths > 0.04, 1.0, -1.0)
-
-    for i in range(steps):
-        # Apply Base -> World
-        p0 = controller.base_pos[0] + controller.base_ori[0] @ left_pos_local[i]
-        p1 = controller.base_pos[1] + controller.base_ori[1] @ right_pos_local[i]
-        
-        o0 = controller.base_ori[0] @ left_ori_local[i]
-        o1 = controller.base_ori[1] @ right_ori_local[i]
-
-        left_pos_seq.append(p0)
-        right_pos_seq.append(p1)
-        left_ori_seq.append(o0)
-        right_ori_seq.append(o1)
     
     # Execute
     try:
-        controller.execute_trajectory(left_pos_seq, left_ori_seq, right_pos_seq, right_ori_seq, left_gripper_seq, right_gripper_seq)
+        controller.execute_trajectory(left_pos_world, left_ori_world, right_pos_world, right_ori_world, left_gripper_seq, right_gripper_seq)
     finally:
         controller.close()

@@ -45,9 +45,9 @@ PROCESSING_ORDER_EPIC = [
     "hand_segmentation",
     "hand2d",
     "arm_segmentation",
+    "hand_inpaint",
     "action",
     "smoothing",
-    "hand_inpaint",
     "robot_inpaint",
 ]
 
@@ -120,14 +120,14 @@ def process_all_demos(cfg: DictConfig, processor_classes: dict) -> None:
         print(f"----------------- {mode.upper()} PROCESSOR -----------------")
         # >>> Hand2Gripper >>> #
         if mode.upper() in (
-            # 'BBOX', 
-            # 'HAND_SEGMENTATION',
-            # 'HAND2D', 
-            # 'ARM_SEGMENTATION', 
+            'BBOX', 
+            'HAND_SEGMENTATION',
+            'HAND2D', 
+            'ARM_SEGMENTATION', 
+            "HAND_INPAINT",
             # "ACTION",
             # "SMOOTHING",
-            # "HAND_INPAINT",
-            # "ROBOT_INPAINT"
+            "ROBOT_INPAINT"
             ):
             continue
         else:

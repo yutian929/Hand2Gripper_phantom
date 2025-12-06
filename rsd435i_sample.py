@@ -38,7 +38,7 @@ def main():
     ap.add_argument("--fps", type=int, default=30, choices=[15, 30, 60], help="Stream FPS")
     ap.add_argument("--width", type=int, default=640, help="Color width")
     ap.add_argument("--height", type=int, default=480, help="Color height")
-    ap.add_argument("--duration", type=float, default=15.0, help="Record duration in seconds")
+    ap.add_argument("--duration", type=float, default=5.0, help="Record duration in seconds")
     ap.add_argument("--warmup", type=int, default=15, help="Warmup frames to stabilize exposure")
     ap.add_argument("--show", action="store_true", help="Show the realtime video")
     args = ap.parse_args()
