@@ -1,1 +1,0 @@
-/usr/bin/c++ -fPIC -flto -shared  -o arx_r5_python.cpython-310-x86_64-linux-gnu.so CMakeFiles/arx_r5_python.dir/src/single_arm_interface.cpp.o  -Wl,-rpath,/home/yutian/Hand2Gripper_phantom/submodules/my_robo/raw_mujoco/ARX_R5_python/bimanual/lib/arx_r5_src: ../lib/arx_r5_src/libarx_r5_src.so 
