@@ -1,0 +1,1 @@
+/usr/bin/c++ -fPIC -flto -shared  -o kinematic_solver.cpython-310-x86_64-linux-gnu.so CMakeFiles/kinematic_solver.dir/src/kinematic_solver.cpp.o  -Wl,-rpath,/home/yutian/Hand2Gripper_phantom/submodules/my_robo/raw_mujoco/ARX_R5_python/bimanual/lib: ../lib/libkinematic_solver.so 

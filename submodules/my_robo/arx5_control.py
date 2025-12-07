@@ -8,8 +8,12 @@ from robosuite.robots import MobileRobot
 from robosuite.utils.input_utils import *
 from robosuite.controllers.composite.composite_controller_factory import refactor_composite_controller_config
 import robosuite.utils.transform_utils as T
+from scipy.spatial.transform import Rotation
 
 MAX_FR = 25  # max frame rate for running simluation
+
+USE_LEFT = False
+USE_RIGHT = True
 
 def _load_hand2gripper_params(key: str):
     hand2gripper_config_path = os.environ.get("HAND2GRIPPER_CONFIG_PATH", "hand2gripper_config.json")
@@ -84,7 +88,7 @@ class DualArmInpaintor:
         self.obs = self.env.reset()
         
         if render:
-            self.env.viewer.set_camera(camera_id=1)
+            self.env.viewer.set_camera(camera_id=0)
             self.env.render()
             
         for robot in self.env.robots:
@@ -126,7 +130,7 @@ class DualArmInpaintor:
             pass # Joint not found
 
     def execute_trajectory(self, left_pos_seq, left_ori_seq, right_pos_seq, right_ori_seq, 
-                           left_gripper_seq=None, right_gripper_seq=None, steps_per_waypoint=1):
+                           left_gripper_seq=None, right_gripper_seq=None, steps_per_waypoint=30):
         """
         Execute a sequence of targets for both arms.
         
@@ -231,16 +235,23 @@ class DualArmInpaintor:
 
             # Construct Action: [dx, dy, dz, dax, day, daz, gripper]
             action_0 = np.concatenate([
-                np.clip(action_pos_0, -1, 1), 
-                np.clip(action_ori_0, -0.5, 0.5), 
+                action_pos_0,
+                action_ori_0,
                 g_action_0
             ])
             action_1 = np.concatenate([
-                np.clip(action_pos_1, -1, 1), 
-                np.clip(action_ori_1, -0.5, 0.5), 
+                action_pos_1, 
+                action_ori_1, 
                 g_action_1
             ])
-            
+
+            if not USE_LEFT:
+                action_0 = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0] + [0.0]*self.gripper_dim)
+            if not USE_RIGHT:
+                action_1 = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0] + [0.0]*self.gripper_dim)
+            action_1[3] = 0.0  # Disable rotation around x-axis for right arm
+            action_1[4] = 0.0  # Disable rotation around y-axis for right arm
+            action_1[5] = 0.0  # Disable rotation around z-axis for right arm
             action = np.concatenate([action_0, action_1])
 
             # Update visual spheres to match targets (Tip)
@@ -296,10 +307,10 @@ class DualArmInpaintor:
 if __name__ == "__main__":
     # Load smoothed actions
     try:
-        data_left = np.load("smoothed_actions_left_shoulders.npz")
-        data_right = np.load("smoothed_actions_right_shoulders.npz")
+        data_left = np.load("free_hand_smoothed_actions_left_in_camera_optical_frame.npz")
+        data_right = np.load("free_hand_smoothed_actions_right_in_camera_optical_frame.npz")
     except FileNotFoundError:
-        print("Error: smoothed_actions_left_shoulders.npz or smoothed_actions_right_shoulders.npz not found.")
+        print("Error: smoothed_actions.npz not found.")
         exit()
 
     # Extract data (Optical Frame)
@@ -313,19 +324,19 @@ if __name__ == "__main__":
 
     # Transform Optical -> Camera Link
     # Transformation: x' = z, y' = -x, z' = -y
-    R_transform = np.array([
+    R_optical_to_link = np.array([
         [0, 0, 1],
         [-1, 0, 0],
         [0, -1, 0]
     ])
 
     # Transform positions
-    left_pts_link = (R_transform @ left_pts.T).T
-    right_pts_link = (R_transform @ right_pts.T).T
+    left_pts_link = (R_optical_to_link @ left_pts.T).T
+    right_pts_link = (R_optical_to_link @ right_pts.T).T
 
     # Transform orientations
-    left_oris_link = np.matmul(R_transform, left_oris)
-    right_oris_link = np.matmul(R_transform, right_oris)
+    left_oris_link = np.matmul(R_optical_to_link, left_oris)
+    right_oris_link = np.matmul(R_optical_to_link, right_oris)
 
     # Camera World Pose (Camera Link Frame)
     cam_pos = np.array([
