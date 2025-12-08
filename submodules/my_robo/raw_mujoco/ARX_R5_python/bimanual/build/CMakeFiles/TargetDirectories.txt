@@ -1,0 +1,8 @@
+/home/yutian/Hand2Gripper_phantom/submodules/my_robo/raw_mujoco/ARX_R5_python/bimanual/build/CMakeFiles/arx_r5_python.dir
+/home/yutian/Hand2Gripper_phantom/submodules/my_robo/raw_mujoco/ARX_R5_python/bimanual/build/CMakeFiles/kinematic_solver.dir
+/home/yutian/Hand2Gripper_phantom/submodules/my_robo/raw_mujoco/ARX_R5_python/bimanual/build/CMakeFiles/edit_cache.dir
+/home/yutian/Hand2Gripper_phantom/submodules/my_robo/raw_mujoco/ARX_R5_python/bimanual/build/CMakeFiles/rebuild_cache.dir
+/home/yutian/Hand2Gripper_phantom/submodules/my_robo/raw_mujoco/ARX_R5_python/bimanual/build/CMakeFiles/list_install_components.dir
+/home/yutian/Hand2Gripper_phantom/submodules/my_robo/raw_mujoco/ARX_R5_python/bimanual/build/CMakeFiles/install.dir
+/home/yutian/Hand2Gripper_phantom/submodules/my_robo/raw_mujoco/ARX_R5_python/bimanual/build/CMakeFiles/install/local.dir
+/home/yutian/Hand2Gripper_phantom/submodules/my_robo/raw_mujoco/ARX_R5_python/bimanual/build/CMakeFiles/install/strip.dir
