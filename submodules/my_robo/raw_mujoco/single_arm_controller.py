@@ -6,6 +6,8 @@ import os
 import bimanual
 from scipy.spatial.transform import Rotation as R
 
+FLANGE_POS_OFFSET = np.array([-0.1, 0.0, -0.16])  # 特定补偿值
+
 class SingleArmController:
     def __init__(self, xml_path, end_effector_site="end_effector", base_link_name="base_link", position_threshold=0.01, max_steps=10_000):
         if not os.path.exists(xml_path):
@@ -71,8 +73,7 @@ class SingleArmController:
         flange_pos_base = flange_pos_world - self.base_pos_world
         
         # 特定补偿 (根据你的上一版代码保留)
-        flange_pos_base[0] -= 0.1
-        flange_pos_base[2] -= 0.16
+        flange_pos_base += FLANGE_POS_OFFSET
         
         return np.concatenate([flange_pos_base, target_euler_world])
 
