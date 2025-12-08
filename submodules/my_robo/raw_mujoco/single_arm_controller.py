@@ -7,142 +7,76 @@ import bimanual
 from scipy.spatial.transform import Rotation as R
 
 class SingleArmController:
-    def __init__(self, xml_path, end_effector_site="end_effector", base_link_name="base_link"):
-        """
-        初始化机器人控制器
-        """
+    def __init__(self, xml_path, end_effector_site="end_effector", base_link_name="base_link", position_threshold=0.01, max_steps=10_000):
         if not os.path.exists(xml_path):
             raise FileNotFoundError(f"XML file not found: {xml_path}")
             
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data = mujoco.MjData(self.model)
         
-        # 保存关键名称
         self.ee_site_name = end_effector_site
         self.base_link_name = base_link_name
         
-        # 1. 初始化常量与配置
+        
+        # 配置参数
         self.GRIPPER_OPEN_VAL = 0.044
-        self.POSITION_THRESHOLD = 0.01  # 到达判定阈值 (m)
+        self.POSITION_THRESHOLD = position_threshold
+        self.MAX_STEPS = max_steps
         
-        # 2. 自动读取运动学参数
+        # 自动读取参数
         self._init_kinematics_params()
-        
-        # 3. 复位机器人
         self.reset()
 
     def _init_kinematics_params(self):
-        """[Internal] 从 XML 读取基座位置和末端偏移"""
-        # A. 读取基座在世界坐标系下的位置
         try:
             base_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, self.base_link_name)
-            if base_id == -1: raise ValueError(f"Body {self.base_link_name} not found")
             self.base_pos_world = self.model.body_pos[base_id].copy()
-            print(f"[Init] Base Position (World): {self.base_pos_world}")
-        except Exception as e:
-            print(f"[Error] Init Base: {e}")
+        except:
             self.base_pos_world = np.zeros(3)
 
-        # B. 读取末端 Site 相对于法兰盘(Link6)的局部偏移
         try:
             site_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, self.ee_site_name)
-            if site_id == -1: raise ValueError(f"Site {self.ee_site_name} not found")
             self.ee_offset_local = self.model.site_pos[site_id].copy()
-            print(f"[Init] EE Offset (Local): {self.ee_offset_local}")
-        except Exception as e:
-            print(f"[Error] Init EE Offset: {e}")
+        except:
             self.ee_offset_local = np.zeros(3)
 
     def reset(self):
-        """重置机器人状态"""
         self.data.qpos[:] = 0
         self.data.ctrl[:] = 0
         mujoco.mj_step(self.model, self.data)
 
-    # ========================================================
-    # 核心算法原子函数 (Internal Helpers)
-    # ========================================================
-
-    def _fk_base(self, joint_angles):
-        """
-        [FK] 正运动学: 关节空间 -> 基座坐标系
-        Args:
-            joint_angles (np.array): 6个关节角
-        Returns:
-            pose_base (np.array): [x, y, z, rx, ry, rz] 相对于基座的位姿
-        """
-        try:
-            return bimanual.forward_kinematics(joint_angles)
-        except Exception as e:
-            print(f"[FK Error] {e}")
-            return np.zeros(6)
-
     def _ik_base(self, target_pose_base):
-        """
-        [IK] 逆运动学: 基座坐标系 -> 关节空间
-        Args:
-            target_pose_base (np.array): [x, y, z, rx, ry, rz] 相对于基座的目标法兰盘位姿
-        Returns:
-            joint_angles (np.array or None): 目标关节角
-        """
         try:
             return bimanual.inverse_kinematics(target_pose_base)
-        except Exception as e:
-            print(f"[IK Error] {e}")
+        except:
             return None
 
     def _get_ee_pose_world(self):
-        """
-        [State] 获取当前末端(Site)在【世界坐标系】下的真实位姿
-        Returns:
-            pose_world (np.array): [x, y, z, rx, ry, rz]
-        """
         site_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, self.ee_site_name)
-        
-        # 1. 位置
         pos = self.data.site_xpos[site_id]
-        
-        # 2. 姿态 (Matrix -> Euler)
         mat = self.data.site_xmat[site_id].reshape(3, 3)
         r = R.from_matrix(mat)
         euler = r.as_euler('xyz', degrees=False)
-        
         return np.concatenate([pos, euler])
 
     def _pose_tf_world2base(self, target_pose_world):
-        """
-        [Transform] 坐标变换: 指尖目标(世界) -> 法兰目标(基座)
-        逻辑:
-        1. Tip(World) -> Flange(World): 减去末端偏移(需考虑旋转)
-        2. Flange(World) -> Flange(Base): 减去基座位置
-        3. Manual Calibration: 应用特定的机械臂偏移补偿
-        """
-        # 解包
         target_pos_world = target_pose_world[:3]
         target_euler_world = target_pose_world[3:]
         
-        # 1. 计算末端偏移在世界系下的向量 (Rotation * Offset_Local)
         r = R.from_euler('xyz', target_euler_world, degrees=False)
         rot_matrix = r.as_matrix()
         offset_world = rot_matrix @ self.ee_offset_local
         
-        # 2. 计算法兰盘在世界系位置
         flange_pos_world = target_pos_world - offset_world
-        
-        # 3. 计算法兰盘在基座系位置 (减去基座坐标)
         flange_pos_base = flange_pos_world - self.base_pos_world
         
-        # 4. 【特定补偿】特定的偏移修正
+        # 特定补偿 (根据你的上一版代码保留)
         flange_pos_base[0] -= 0.1
         flange_pos_base[2] -= 0.16
         
-        # 5. 组合 (假设基座与世界无相对旋转)
-        target_pose_base = np.concatenate([flange_pos_base, target_euler_world])
-        
-        return target_pose_base
+        return np.concatenate([flange_pos_base, target_euler_world])
 
     def _update_mocap_marker(self, pos):
-        """[Visual] 更新可视化小球位置"""
         try:
             target_body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "target_marker")
             if target_body_id != -1:
@@ -151,102 +85,117 @@ class SingleArmController:
         except: pass
 
     # ========================================================
-    # 主调用接口 (Public API)
+    # 【新增】轨迹跟踪函数
     # ========================================================
-
-    def move_ee_pose_world(self, target_pose_world, max_steps=3000):
+    def move_trajectory(self, target_world_seq, max_steps_per_point=None):
         """
-        移动末端到指定的世界坐标位姿
+        连续执行一系列目标点
         
         Args:
-            target_pose_world (np.array): [x, y, z, rx, ry, rz]
-            max_steps (int): 最大仿真步数
-            
-        Returns:
-            success (bool): 是否到达
-            final_error (float): 最终的位置误差(m)
+            target_world_seq (np.array): 形状 (N, 6) 的数组，包含 N 个目标位姿
+            max_steps_per_point (int): 每个点的最大等待步数
         """
-        print(f"\n[Command] Move to World Pose: {np.round(target_pose_world[:3], 3)}")
+        print(f"\n[Trajectory] Received {len(target_world_seq)} waypoints.")
+        if max_steps_per_point is None:
+            max_steps_per_point = self.MAX_STEPS
         
-        # 1. 可视化目标
-        self._update_mocap_marker(target_pose_world[:3])
-        
-        # 2. 坐标转换 (World -> Base)
-        target_pose_base = self._pose_tf_world2base(target_pose_world)
-        
-        # 3. 逆运动学求解
-        target_joints = self._ik_base(target_pose_base)
-        
-        if target_joints is None:
-            print("[Error] IK Solution Not Found")
-            return False, 999.0
+        # 1. 预计算：先解算所有点的 IK，确保路径可行
+        # ----------------------------------------------------
+        joint_targets_queue = []
+        for i, pose in enumerate(target_world_seq):
+            pose_base = self._pose_tf_world2base(pose)
+            joints = self._ik_base(pose_base)
             
-        print(f"[IK] Solved Joints: {np.round(target_joints, 3)}")
+            if joints is None:
+                print(f"[Error] IK Failed at waypoint {i}: {pose}")
+                return False
+            joint_targets_queue.append(joints)
+            
+        print("[Trajectory] All IK solved. Starting execution...")
+
+        # 2. 执行循环：只启动一次 Viewer
+        # ----------------------------------------------------
+        current_idx = 0
+        total_points = len(joint_targets_queue)
         
-        # 4. 执行控制循环
-        success = False
-        final_error = 999.0
+        # 初始化第一个目标
+        current_joint_target = joint_targets_queue[0]
+        current_pose_target_world = target_world_seq[0]
+        self._update_mocap_marker(current_pose_target_world[:3])
+        
+        success_count = 0
         
         with mujoco.viewer.launch_passive(self.model, self.data) as viewer:
-            step_count = 0
-            while viewer.is_running() and step_count < max_steps:
-                loop_start = time.time()
+            step_count_for_current = 0
+            
+            while viewer.is_running():
+                step_start = time.time()
                 
-                # --- A. 下发控制 ---
-                self.data.ctrl[:6] = target_joints
+                # --- A. 下发当前目标的控制 ---
+                self.data.ctrl[:6] = current_joint_target
                 if self.model.nu >= 8:
-                    self.data.ctrl[6:] = self.GRIPPER_OPEN_VAL # 保持张开
+                    self.data.ctrl[6:] = self.GRIPPER_OPEN_VAL
 
                 # --- B. 物理步进 ---
                 mujoco.mj_step(self.model, self.data)
-                step_count += 1
+                step_count_for_current += 1
                 
                 # --- C. 误差检测 ---
-                # 获取当前真实的指尖世界坐标
-                current_pose = self._get_ee_pose_world()
-                current_pos_world = current_pose[:3]
+                current_ee_pose = self._get_ee_pose_world()
+                # 只计算位置误差 (欧氏距离)
+                error = np.linalg.norm(current_ee_pose[:3] - current_pose_target_world[:3])
                 
-                # 计算位置误差
-                error = np.linalg.norm(current_pos_world - target_pose_world[:3])
-                final_error = error
+                # 状态检查
+                reached = error < self.POSITION_THRESHOLD
+                timeout = step_count_for_current >= max_steps_per_point
                 
-                # 判定到达
-                if error < self.POSITION_THRESHOLD:
-                    success = True
-                    break
+                # --- D. 切换目标逻辑 ---
+                if reached or timeout:
+                    status = "✅ Reached" if reached else "⚠️ Timeout (Skipping)"
+                    print(f"Waypoint {current_idx}: {status} | Error: {error:.4f}m")
+                    
+                    if reached: success_count += 1
+                    
+                    # 切换到下一个点
+                    current_idx += 1
+                    if current_idx >= total_points:
+                        print("\n[Trajectory] All waypoints completed!")
+                        break # 结束整个任务
+                    
+                    # 更新目标
+                    current_joint_target = joint_targets_queue[current_idx]
+                    current_pose_target_world = target_world_seq[current_idx]
+                    self._update_mocap_marker(current_pose_target_world[:3])
+                    
+                    # 重置计数器
+                    step_count_for_current = 0
                 
-                # --- D. 渲染与同步 ---
+                # --- E. 渲染 ---
                 viewer.sync()
                 
-                # 简单的帧率控制
-                time_until_next = self.model.opt.timestep - (time.time() - loop_start)
+                time_until_next = self.model.opt.timestep - (time.time() - step_start)
                 if time_until_next > 0:
                     time.sleep(time_until_next)
-                    
-        # 5. 打印结果
-        status_str = "SUCCESS ✅" if success else "FAILED ❌"
-        print(f"[Result] {status_str} | Steps: {step_count} | Error: {final_error:.5f}m")
-        
-        return success, final_error
+
+        return success_count == total_points
 
 # ========================================================
 # 使用示例
 # ========================================================
-
 if __name__ == "__main__":
     current_dir = os.path.dirname(os.path.abspath(__file__))
     xml_path = os.path.join(current_dir, "R5/R5a/meshes/mjmodel.xml")
     
-    # 实例化控制器
     try:
-        robot = SingleArmController(xml_path, end_effector_site="end_effector")
+        robot = SingleArmController(xml_path)
         
-        # 定义目标 (世界坐标系)
-        # 假设基座在 z=1.0，我们去前方 0.3m, 高度 1.3m 的地方
-        target_world = np.array([0.3, 0.3, 1.3, np.pi/2, 0.0, np.pi/2])
+        target_seq_world = np.array([
+            [0.3, 0.3, 1.3, np.pi/2, 0.0, np.pi/2],
+            [0.3, 0.0, 1.3, 0.0, 0.0, 0.0],
+            [0.4, -0.2, 1.2, 0.0, np.pi/4, 0.0]
+        ])
         
-        # 调用接口
-        is_reached, err = robot.move_ee_pose_world(target_world, max_steps=10_000)
+        robot.move_trajectory(target_seq_world)
         
     except Exception as e:
-        print(f"Main Error: {e}")
+        print(f"Error: {e}")
