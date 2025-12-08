@@ -90,8 +90,8 @@ def visualize_actions(data_left, data_right):
 if __name__ == "__main__":
     # Load data
     try:
-        data_left = dict(np.load("free_hand_smoothed_actions_left_in_camera_optical_frame.npz"))
-        data_right = dict(np.load("free_hand_smoothed_actions_right_in_camera_optical_frame.npz"))
+        data_left = dict(np.load("free_hand_N_to_F_smoothed_actions_left_in_camera_optical_frame.npz"))
+        data_right = dict(np.load("free_hand_N_to_F_smoothed_actions_right_in_camera_optical_frame.npz"))
     except FileNotFoundError:
         print("Error: smoothed_actions_left_shoulders.npz or smoothed_actions_right_shoulders.npz not found in current directory.")
         exit()

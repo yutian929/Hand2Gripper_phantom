@@ -9,7 +9,7 @@ from scipy.spatial.transform import Rotation as R
 FLANGE_POS_OFFSET = np.array([-0.1, 0.0, -0.16])  # 特定补偿值
 
 class SingleArmController:
-    def __init__(self, xml_path, end_effector_site="end_effector", base_link_name="base_link", position_threshold=0.01, max_steps=10_000):
+    def __init__(self, xml_path, end_effector_site="end_effector", base_link_name="base_link", position_threshold=0.02, max_steps=10_000):
         if not os.path.exists(xml_path):
             raise FileNotFoundError(f"XML file not found: {xml_path}")
             
@@ -52,6 +52,32 @@ class SingleArmController:
             return bimanual.inverse_kinematics(target_pose_base)
         except:
             return None
+    
+    def _get_base_pose_world(self):
+            """
+            获取基座在世界坐标系下的位姿
+            Returns:
+                np.array: [x, y, z, rx, ry, rz] (单位: 米, 弧度)
+            """
+            # 1. 获取 Body ID
+            base_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, self.base_link_name)
+            if base_id == -1:
+                print(f"[Error] Base link '{self.base_link_name}' not found.")
+                return np.zeros(6)
+
+            # 2. 获取位置 (xpos 是世界坐标系下的位置)
+            pos = self.data.xpos[base_id]
+
+            # 3. 获取姿态 (xmat 是世界坐标系下的旋转矩阵，展平的9元素数组)
+            # MuJoCo 的 xmat 是行优先还是列优先并不重要，scipy 能自动处理 reshape(3,3)
+            mat = self.data.xmat[base_id].reshape(3, 3)
+            
+            # 4. 转换为欧拉角 (保持和你其他函数一致的 XYZ 顺序)
+            r = R.from_matrix(mat)
+            euler = r.as_euler('xyz', degrees=False)
+
+            return np.concatenate([pos, euler])
+
 
     def _get_ee_pose_world(self):
         site_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, self.ee_site_name)
@@ -88,31 +114,48 @@ class SingleArmController:
     # ========================================================
     # 【新增】轨迹跟踪函数
     # ========================================================
-    def move_trajectory(self, target_world_seq, max_steps_per_point=None):
+    def move_trajectory(self, target_world_seq, max_steps_per_point=None, kinematic_only=False):
         """
         连续执行一系列目标点
         
         Args:
             target_world_seq (np.array): 形状 (N, 6) 的数组，包含 N 个目标位姿
             max_steps_per_point (int): 每个点的最大等待步数
+            kinematic_only (bool): 是否仅进行运动学控制 (无物理/碰撞/力矩)
         """
-        print(f"\n[Trajectory] Received {len(target_world_seq)} waypoints.")
+        print(f"\n[Trajectory] Received {len(target_world_seq)} waypoints. Kinematic Only: {kinematic_only}")
         if max_steps_per_point is None:
             max_steps_per_point = self.MAX_STEPS
         
         # 1. 预计算：先解算所有点的 IK，确保路径可行
         # ----------------------------------------------------
         joint_targets_queue = []
+        
+        # 初始 fallback 为当前关节角度 (通常是0或上一帧的位置)
+        last_valid_joints = self.data.qpos[:6].copy()
+        
+        # 记录 IK 失败的索引
+        failed_indices = []
+
         for i, pose in enumerate(target_world_seq):
             pose_base = self._pose_tf_world2base(pose)
             joints = self._ik_base(pose_base)
             
             if joints is None:
-                print(f"[Error] IK Failed at waypoint {i}: {pose}")
-                return False
+                # print(f"[Warning] IK Failed at waypoint {i}. Using last valid joints.")
+                failed_indices.append(i)
+                # 使用上一个有效值 (如果是第0个，则是初始状态)
+                joints = last_valid_joints.copy()
+            else:
+                # 更新有效值
+                last_valid_joints = joints.copy()
+                
             joint_targets_queue.append(joints)
             
-        print("[Trajectory] All IK solved. Starting execution...")
+        if failed_indices:
+            print(f"[Warning] IK Failed for {len(failed_indices)} waypoints (used fallback). Indices: {failed_indices}")
+
+        print("[Trajectory] All IK solved (with fallbacks). Starting execution...")
 
         # 2. 执行循环：只启动一次 Viewer
         # ----------------------------------------------------
@@ -133,12 +176,26 @@ class SingleArmController:
                 step_start = time.time()
                 
                 # --- A. 下发当前目标的控制 ---
-                self.data.ctrl[:6] = current_joint_target
-                if self.model.nu >= 8:
-                    self.data.ctrl[6:] = self.GRIPPER_OPEN_VAL
+                if kinematic_only:
+                    # [运动学模式] 直接修改关节位置，无视物理
+                    self.data.qpos[:6] = current_joint_target
+                    if self.model.nu >= 8:
+                        # 假设 gripper 对应 qpos 的 6, 7 (基于当前 XML 结构)
+                        self.data.qpos[6] = self.GRIPPER_OPEN_VAL
+                        self.data.qpos[7] = self.GRIPPER_OPEN_VAL
+                    
+                    # 强制更新几何体位置 (不进行物理步进)
+                    mujoco.mj_forward(self.model, self.data)
+                else:
+                    # [动力学模式] 设置控制信号，由物理引擎驱动
+                    self.data.ctrl[:6] = current_joint_target
+                    if self.model.nu >= 8:
+                        self.data.ctrl[6:] = self.GRIPPER_OPEN_VAL
 
                 # --- B. 物理步进 ---
-                mujoco.mj_step(self.model, self.data)
+                if not kinematic_only:
+                    mujoco.mj_step(self.model, self.data)
+                
                 step_count_for_current += 1
                 
                 # --- C. 误差检测 ---
@@ -147,11 +204,17 @@ class SingleArmController:
                 error = np.linalg.norm(current_ee_pose[:3] - current_pose_target_world[:3])
                 
                 # 状态检查
+                # 如果是 kinematic_only，IK 准确的话 error 应该接近 0，reached 立即为 True
                 reached = error < self.POSITION_THRESHOLD
-                timeout = step_count_for_current >= max_steps_per_point
+                
+                if current_idx == 0:
+                    timeout = step_count_for_current >= self.MAX_STEPS
+                else:
+                    timeout = step_count_for_current >= max_steps_per_point
                 
                 # --- D. 切换目标逻辑 ---
                 if reached or timeout:
+                    # 如果是 kinematic_only 且 dense trajectory，这里会每一帧切换一个点，形成动画播放效果
                     status = "✅ Reached" if reached else "⚠️ Timeout (Skipping)"
                     print(f"Waypoint {current_idx}: {status} | Error: {error:.4f}m")
                     
@@ -196,7 +259,8 @@ if __name__ == "__main__":
             [0.4, -0.2, 1.2, 0.0, np.pi/4, 0.0]
         ])
         
-        robot.move_trajectory(target_seq_world)
+        # 示例：开启 kinematic_only=True
+        robot.move_trajectory(target_seq_world, kinematic_only=True)
         
     except Exception as e:
         print(f"Error: {e}")

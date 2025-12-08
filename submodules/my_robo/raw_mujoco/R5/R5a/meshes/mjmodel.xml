@@ -76,9 +76,9 @@
     <position name="act_j1" joint="joint1" kp="3000" kv="100"/>
     <position name="act_j2" joint="joint2" kp="900" kv="30"/>
     <position name="act_j3" joint="joint3" kp="900" kv="30"/>
-    <position name="act_j4" joint="joint4" kp="900" kv="10"/>
+    <position name="act_j4" joint="joint4" kp="1800" kv="5"/>
     <position name="act_j5" joint="joint5" kp="900" kv="5"/>
-    <position name="act_j6" joint="joint6" kp="900" kv="5"/>
+    <position name="act_j6" joint="joint6" kp="1800" kv="10"/>
     <position name="act_j7" joint="joint7" kp="150" kv="5"/>
     <position name="act_j8" joint="joint8" kp="150" kv="5"/>
   </actuator>
