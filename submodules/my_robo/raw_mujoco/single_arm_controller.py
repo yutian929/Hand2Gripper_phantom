@@ -248,7 +248,7 @@ class SingleArmController:
 # ========================================================
 if __name__ == "__main__":
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    xml_path = os.path.join(current_dir, "R5/R5a/meshes/mjmodel.xml")
+    xml_path = os.path.join(current_dir, "R5/R5a/meshes/single_arm_scene.xml")
     
     try:
         robot = SingleArmController(xml_path)

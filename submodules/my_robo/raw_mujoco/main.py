@@ -176,7 +176,7 @@ def visualize_trajectory(target_seq, title="Trajectory Visualization"):
 
 if __name__ == "__main__":
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    xml_path = os.path.join(current_dir, "R5/R5a/meshes/mjmodel.xml")
+    xml_path = os.path.join(current_dir, "R5/R5a/meshes/single_arm_scene.xml")
     data_path = os.path.join(current_dir, "free_hand_N_to_F_smoothed_actions_right_in_camera_optical_frame.npz")
 
     robot = SingleArmController(xml_path, end_effector_site="end_effector")
