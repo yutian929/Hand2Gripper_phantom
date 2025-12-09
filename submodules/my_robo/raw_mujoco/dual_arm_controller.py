@@ -241,7 +241,7 @@ if __name__ == "__main__":
     # 【修改处】: 使用 os 获取当前脚本所在目录，并拼接相对路径
     # 假设当前脚本位于 raw_mujoco 文件夹下
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    xml_path = os.path.join(current_dir, "R5", "R5a", "meshes", "dual_arm_model.xml")
+    xml_path = os.path.join(current_dir, "R5", "R5a", "meshes", "dual_arm_scene.xml")
     
     try:
         # 使用新的纯运动学控制器
@@ -267,7 +267,7 @@ if __name__ == "__main__":
         
         print("Starting dual arm trajectory playback (Kinematic).")
         # 纯运动学播放，设置 0.5 秒的延迟，让每个点停留一段时间
-        robot.move_trajectory(target_world_seqs, delay_per_point=0.5) 
+        robot.move_trajectory(target_world_seqs, delay_per_point=2) 
         
     except FileNotFoundError as e:
         print(f"Error: {e}. Please ensure the XML file is at the specified path.")
