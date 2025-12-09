@@ -179,7 +179,7 @@ if __name__ == "__main__":
     xml_path = os.path.join(current_dir, "R5/R5a/meshes/single_arm_scene.xml")
     data_path = os.path.join(current_dir, "free_hand_N_to_F_smoothed_actions_right_in_camera_optical_frame.npz")
 
-    robot = SingleArmController(xml_path, end_effector_site="end_effector")
+    robot = SingleArmController(xml_path)
     robot_base_pose_world = robot._get_base_pose_world()
     Mat_world_T_base = pose_to_matrix(robot_base_pose_world)
     print(f"Mat_world_T_base:\n{Mat_world_T_base}")
@@ -187,18 +187,15 @@ if __name__ == "__main__":
     seqs_in_camera_link = load_and_transform_data(data_path)
     Mat_camera_T_seqs = np.array([pose_to_matrix(pose) for pose in seqs_in_camera_link])
     print(f"Mat_camera_T_seqs shape: {Mat_camera_T_seqs.shape}")
-    # visualize_trajectory(seqs_in_camera_link, title="Trajectory in Camera Link Frame")
+    visualize_trajectory(seqs_in_camera_link, title="Trajectory in Camera Link Frame")
 
-    # Convert to world frame
     Mat_world_T_seqs = Mat_world_T_base @ Mat_base_T_camera @ Mat_camera_T_seqs
     seqs_in_world = np.array([matrix_to_pose(mat) for mat in Mat_world_T_seqs])
     print(f"seqs_in_world shape: {seqs_in_world.shape}")
-    # visualize_trajectory(seqs_in_world, title="Trajectory in World Frame")
+    visualize_trajectory(seqs_in_world, title="Trajectory in World Frame")
 
     if seqs_in_world is not None:
         try:
-            # Execute Trajectory
-            # 开启 kinematic_only=True，直接设置关节角度，忽略物理碰撞和动力学
             robot.move_trajectory(seqs_in_world, kinematic_only=True)
             
         except Exception as e:

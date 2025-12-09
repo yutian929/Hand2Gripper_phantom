@@ -9,14 +9,14 @@ from scipy.spatial.transform import Rotation as R
 FLANGE_POS_OFFSET = np.array([-0.1, 0.0, -0.16])  # 特定补偿值
 
 class SingleArmController:
-    def __init__(self, xml_path, end_effector_site="end_effector", base_link_name="base_link", position_threshold=0.02, max_steps=10_000):
+    def __init__(self, xml_path, end_effector_site_name="end_effector", base_link_name="base_link", position_threshold=0.02, max_steps=10_000):
         if not os.path.exists(xml_path):
             raise FileNotFoundError(f"XML file not found: {xml_path}")
             
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data = mujoco.MjData(self.model)
         
-        self.ee_site_name = end_effector_site
+        self.ee_site_name = end_effector_site_name
         self.base_link_name = base_link_name
         
         

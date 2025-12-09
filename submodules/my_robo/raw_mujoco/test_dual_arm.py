@@ -3,6 +3,7 @@ import os
 import mujoco
 from scipy.spatial.transform import Rotation as R
 from dual_arm_controller import DualArmController
+from test_single_arm import visualize_trajectory, pose_to_matrix, matrix_to_pose
 
 # ---------------------------------------------------------
 # Configuration
@@ -13,7 +14,7 @@ from dual_arm_controller import DualArmController
 # Camera relative to Left Arm Base
 Mat_base_L_T_camera = np.array([
     [1.0, 0.0, 0.0, 0.0,],
-    [0.0, 1.0, 0.0, 0.0,],
+    [0.0, 1.0, 0.0, -0.25,],
     [0.0, 0.0, 1.0, 0.2,],
     [0.0, 0.0, 0.0, 1.0,],
 ])
@@ -21,7 +22,7 @@ Mat_base_L_T_camera = np.array([
 # Camera relative to Right Arm Base
 Mat_base_R_T_camera = np.array([
     [1.0, 0.0, 0.0, 0.0,],
-    [0.0, 1.0, 0.0, 0.0,],
+    [0.0, 1.0, 0.0, 0.25,],
     [0.0, 0.0, 1.0, 0.2,],
     [0.0, 0.0, 0.0, 1.0,],
 ])
@@ -82,42 +83,6 @@ def load_and_transform_data(filepath):
 
     return target_seq
 
-def pose_to_matrix(pose):
-    """ [x, y, z, rx, ry, rz] -> 4x4 Homogeneous Matrix """
-    t = pose[:3]
-    euler = pose[3:]
-    r = R.from_euler('xyz', euler, degrees=False)
-    mat = np.eye(4)
-    mat[:3, :3] = r.as_matrix()
-    mat[:3, 3] = t
-    return mat
-
-def matrix_to_pose(mat):
-    """ 4x4 Homogeneous Matrix -> [x, y, z, rx, ry, rz] """
-    t = mat[:3, 3]
-    rot_mat = mat[:3, :3]
-    r = R.from_matrix(rot_mat)
-    euler = r.as_euler('xyz', degrees=False)
-    return np.concatenate([t, euler])
-
-def get_body_pose_world(model, data, body_name):
-    """ Get the pose of a body in world frame from MuJoCo data """
-    body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, body_name)
-    if body_id == -1:
-        raise ValueError(f"Body {body_name} not found")
-    
-    pos = data.xpos[body_id]
-    mat = data.xmat[body_id].reshape(3, 3)
-    r = R.from_matrix(mat)
-    euler = r.as_euler('xyz', degrees=False)
-    return np.concatenate([pos, euler])
-
-def transform_seq_to_world(seq_camera, T_world_camera):
-    """ Transform a sequence of poses from Camera frame to World frame """
-    Mat_camera_T_seq = np.array([pose_to_matrix(p) for p in seq_camera])
-    Mat_world_T_seq = T_world_camera @ Mat_camera_T_seq
-    return np.array([matrix_to_pose(m) for m in Mat_world_T_seq])
-
 # ---------------------------------------------------------
 # Main Execution
 # ---------------------------------------------------------
@@ -129,61 +94,36 @@ if __name__ == "__main__":
     data_path_L = os.path.join(current_dir, "free_hand_N_to_F_smoothed_actions_left_in_camera_optical_frame.npz")
     data_path_R = os.path.join(current_dir, "free_hand_N_to_F_smoothed_actions_right_in_camera_optical_frame.npz")
 
-    print("Initializing DualArmController...")
-    try:
-        robot = DualArmController(xml_path, arm_names=['L', 'R'])
-    except FileNotFoundError as e:
-        print(f"Error: {e}")
-        exit()
-
-    # 1. Get Reference Base Poses for Left and Right Arms
-    try:
-        base_pose_world_L = get_body_pose_world(robot.model, robot.data, "base_link_L")
-        base_pose_world_R = get_body_pose_world(robot.model, robot.data, "base_link_R")
-        print(f"Base L Pose: {np.round(base_pose_world_L, 3)}")
-        print(f"Base R Pose: {np.round(base_pose_world_R, 3)}")
-    except ValueError as e:
-        print(f"Error getting base poses: {e}")
-        exit()
-
+    dual_robot = DualArmController(xml_path)
+    base_pose_world_L = dual_robot._get_base_pose_world("L")
+    base_pose_world_R = dual_robot._get_base_pose_world("R")
     Mat_world_T_base_L = pose_to_matrix(base_pose_world_L)
     Mat_world_T_base_R = pose_to_matrix(base_pose_world_R)
+    print("Mat_world_T_base_L:\n", np.round(Mat_world_T_base_L, 2))
+    print("Mat_world_T_base_R:\n", np.round(Mat_world_T_base_R, 2))
     
-    # 2. Calculate World -> Camera Transforms
-    # Camera pose derived from Left Base
-    Mat_world_T_camera_L = Mat_world_T_base_L @ Mat_base_L_T_camera
-    
-    # Camera pose derived from Right Base
-    Mat_world_T_camera_R = Mat_world_T_base_R @ Mat_base_R_T_camera
-    
-    print("Mat_world_T_camera (derived from L):\n", np.round(Mat_world_T_camera_L, 2))
-    print("Mat_world_T_camera (derived from R):\n", np.round(Mat_world_T_camera_R, 2))
+    seqs_L_in_camera_link = load_and_transform_data(data_path_L)
+    seqs_R_in_camera_link = load_and_transform_data(data_path_R)
+    Mat_camera_T_seqs_L = np.array([pose_to_matrix(pose) for pose in seqs_L_in_camera_link])
+    Mat_camera_T_seqs_R = np.array([pose_to_matrix(pose) for pose in seqs_R_in_camera_link])
+    print(f"Mat_camera_T_seqs_L shape: {Mat_camera_T_seqs_L.shape}")
+    print(f"Mat_camera_T_seqs_R shape: {Mat_camera_T_seqs_R.shape}")
+    # visualize_trajectory(seqs_L_in_camera_link, title="Left Arm Trajectory in Camera Link Frame")
+    # visualize_trajectory(seqs_R_in_camera_link, title="Right Arm Trajectory in Camera Link Frame")
 
-    # 3. Load and Transform Data
-    print(f"Loading Left trajectory: {data_path_L}")
-    seq_camera_L = load_and_transform_data(data_path_L)
-    
-    print(f"Loading Right trajectory: {data_path_R}")
-    seq_camera_R = load_and_transform_data(data_path_R)
-    
-    if seq_camera_L is None or seq_camera_R is None:
-        print("Failed to load trajectory data.")
-        exit()
+    Mat_world_T_seqs_L = Mat_world_T_base_L @ Mat_base_L_T_camera @ Mat_camera_T_seqs_L
+    Mat_world_T_seqs_R = Mat_world_T_base_R @ Mat_base_R_T_camera @ Mat_camera_T_seqs_R
+    seqs_L_in_world = np.array([matrix_to_pose(mat) for mat in Mat_world_T_seqs_L])
+    seqs_R_in_world = np.array([matrix_to_pose(mat) for mat in Mat_world_T_seqs_R])
+    print(f"seqs_L_in_world shape: {seqs_L_in_world.shape}")
+    print(f"seqs_R_in_world shape: {seqs_R_in_world.shape}")
+    visualize_trajectory(seqs_L_in_world, title="Left Arm Trajectory in World Frame")
+    visualize_trajectory(seqs_R_in_world, title="Right Arm Trajectory in World Frame")
 
-    print("Transforming trajectories to World frame...")
-    # Transform Left trajectory using Left-derived camera pose
-    seq_world_L = transform_seq_to_world(seq_camera_L, Mat_world_T_camera_L)
-    # Transform Right trajectory using Right-derived camera pose
-    seq_world_R = transform_seq_to_world(seq_camera_R, Mat_world_T_camera_R)
-
-    target_world_seqs = {
-        'L': seq_world_L,
-        'R': seq_world_R
-    }
-
-    # 4. Execute
-    print("Starting execution (Kinematic Only)...")
-    try:
-        robot.move_trajectory(target_world_seqs, kinematic_only=True)
-    except Exception as e:
-        print(f"Execution Error: {e}")
+    if seqs_L_in_world is not None and seqs_R_in_world is not None:
+        try:
+            dual_robot.move_trajectory(seqs_L_in_world, seqs_R_in_world, kinematic_only=True)
+        except Exception as e:
+            print(f"Error during dual arm trajectory execution: {e}")
+    else:
+        print("Failed to load trajectory data for one or both arms.")
