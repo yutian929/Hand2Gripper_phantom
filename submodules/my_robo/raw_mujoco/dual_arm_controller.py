@@ -218,7 +218,7 @@ class DualArmController:
             
             success_count = 0
             is_finished = False  # 标记轨迹是否执行完毕
-            
+            debug = 0
             with mujoco.viewer.launch_passive(self.model, self.data) as viewer:
                 step_count_for_current = 0
                 
@@ -249,7 +249,7 @@ class DualArmController:
                     # --- B. 物理步进 ---
                     if not kinematic_only:
                         mujoco.mj_step(self.model, self.data)
-                    
+
                     # 只有未完成时才进行误差检测和目标切换
                     if not is_finished:
                         step_count_for_current += 1
@@ -278,7 +278,7 @@ class DualArmController:
                         if all_reached or timeout:
                             status = "✅ Reached" if all_reached else "⚠️ Timeout"
                             # 可选：打印每个点的状态
-                            # print(f"Waypoint {current_idx}: {status} | Max Error: {max_error:.4f}m")
+                            print(f"Waypoint {current_idx}: {status} | Max Error: {max_error:.4f}m")
                             
                             if all_reached: success_count += 1
                             
@@ -298,7 +298,7 @@ class DualArmController:
 
                     # --- E. 渲染 ---
                     viewer.sync()
-                    
+
                     # --- F. 帧率控制 ---
                     time_until_next = self.model.opt.timestep - (time.time() - step_start)
                     if time_until_next > 0:
@@ -316,7 +316,7 @@ if __name__ == "__main__":
     xml_path = os.path.join(current_dir, "R5", "R5a", "meshes", "dual_arm_scene.xml")
     
     try:
-        robot = DualArmController(xml_path)
+        robot = DualArmController(xml_path, max_steps=5000)
         
         target_seq_L = np.array([
             [0.3, 0.5, 1.3, np.pi/2, 0.0, np.pi/2], 
