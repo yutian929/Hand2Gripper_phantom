@@ -1,16 +1,10 @@
 import numpy as np
+import cv2
 import os
 from scipy.spatial.transform import Rotation as R
 from single_arm_controller import SingleArmController
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-
-Mat_base_T_camera = np.array([
-    [1.0, 0.0, 0.0, 0.0,],
-    [0.0, 1.0, 0.0, 0.0,],
-    [0.0, 0.0, 1.0, 0.2,],
-    [0.0, 0.0, 0.0, 1.0,],
-    ])
 
 def load_and_transform_data(filepath):
     """
@@ -175,6 +169,9 @@ def visualize_trajectory(target_seq, title="Trajectory Visualization"):
     plt.show()
 
 if __name__ == "__main__":
+    camera_pose_in_base = np.array([0.0, 0.0, 0.5, 0.0, 1.0, 0.0])
+    Mat_base_T_camera = pose_to_matrix(camera_pose_in_base)
+
     current_dir = os.path.dirname(os.path.abspath(__file__))
     xml_path = os.path.join(current_dir, "R5/R5a/meshes/single_arm_scene.xml")
     data_path = os.path.join(current_dir, "free_hand_N_to_F_smoothed_actions_right_in_camera_optical_frame.npz")
@@ -187,17 +184,38 @@ if __name__ == "__main__":
     seqs_in_camera_link = load_and_transform_data(data_path)
     Mat_camera_T_seqs = np.array([pose_to_matrix(pose) for pose in seqs_in_camera_link])
     print(f"Mat_camera_T_seqs shape: {Mat_camera_T_seqs.shape}")
-    visualize_trajectory(seqs_in_camera_link, title="Trajectory in Camera Link Frame")
+    # visualize_trajectory(seqs_in_camera_link, title="Trajectory in Camera Link Frame")
 
     Mat_world_T_seqs = Mat_world_T_base @ Mat_base_T_camera @ Mat_camera_T_seqs
     seqs_in_world = np.array([matrix_to_pose(mat) for mat in Mat_world_T_seqs])
     print(f"seqs_in_world shape: {seqs_in_world.shape}")
-    visualize_trajectory(seqs_in_world, title="Trajectory in World Frame")
+    # visualize_trajectory(seqs_in_world, title="Trajectory in World Frame")
+
+    # assume camera base fixed
+    Mat_world_T_camera = Mat_world_T_base @ Mat_base_T_camera
+    camera_poses_in_world = np.array([matrix_to_pose(Mat_world_T_camera) for _ in range(len(seqs_in_world))])
+    print(f"camera_poses_in_world shape: {camera_poses_in_world.shape}")
+    # visualize_trajectory(camera_poses_in_world, title="Camera Poses in World Frame")
 
     if seqs_in_world is not None:
         try:
+            print("########## Executing move_trajectory ##########")
             robot.move_trajectory(seqs_in_world, kinematic_only=True)
+            print("########## Executing move_trajectory_with_camera ##########")
+            frames, masks = robot.move_trajectory_with_camera(seqs_in_world, camera_poses_in_world, kinematic_only=True)
             
+            for i, (frame, mask) in enumerate(zip(frames, masks)):
+                cv2.imshow("Frame", cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+                
+                geom_ids = mask[:, :, 0]
+                # ID 0 -> Black [0,0,0], Others -> White [255,255,255]
+                mask_vis = np.zeros((geom_ids.shape[0], geom_ids.shape[1], 3), dtype=np.uint8)
+                mask_vis[geom_ids > 0] = [255, 255, 255]
+                
+                cv2.imshow("Mask", mask_vis)
+                cv2.waitKey(100)
+            
+            cv2.destroyAllWindows()
         except Exception as e:
             print(f"Execution Error: {e}")
     else:
