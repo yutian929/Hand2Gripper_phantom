@@ -127,184 +127,204 @@ class DualArmController:
     # ========================================================
     # 轨迹跟踪函数
     # ========================================================
-    def move_trajectory(self, target_world_seqs_L, target_world_seqs_R, max_steps_per_point=None, kinematic_only=False):
-            """
-            连续执行一系列双臂目标点。
+    def move_trajectory(self, target_seqs_L_world, target_seqs_R_world, max_steps_per_point=None, kinematic_only=False):
+        """
+        连续执行一系列双臂目标点。
+        
+        Args:
+            target_seqs_L_world (np.array): 左臂目标序列，形状 (N, 6)
+            target_seqs_R_world (np.array): 右臂目标序列，形状 (N, 6)
+            max_steps_per_point (int, optional): 每个目标点的最大步数。默认使用 self.MAX_STEPS。
+            kinematic_only (bool): 是否仅使用运动学模式（直接设置关节位置），忽略动力学和碰撞。
             
-            Args:
-                target_world_seqs_L (np.array): 左臂目标序列，形状 (N, 6)
-                target_world_seqs_R (np.array): 右臂目标序列，形状 (N, 6)
-                max_steps_per_point (int, optional): 每个目标点的最大步数。默认使用 self.MAX_STEPS。
-                kinematic_only (bool): 是否仅使用运动学模式（直接设置关节位置），忽略动力学和碰撞。
-                
-            Returns:
-                success (bool): 是否成功完成所有目标点。
-            """
-            if not self.ARM_NAMES: return True
-            
-            print(f"\n[Trajectory] Dual Arm. Kinematic Only: {kinematic_only}")
-            
-            # 1. 验证输入数据
-            # ----------------------------------------------------
-            target_world_seqs = {
-                'L': target_world_seqs_L,
-                'R': target_world_seqs_R
-            }
+        Returns:
+            success (bool): 是否成功完成所有目标点。
+        """
+        if not self.ARM_NAMES: return True
+        
+        print(f"\n[Trajectory] Dual Arm. Kinematic Only: {kinematic_only}")
+        
+        # 1. 验证输入数据
+        # ----------------------------------------------------
+        target_world_seqs = {
+            'L': target_seqs_L_world,
+            'R': target_seqs_R_world
+        }
 
-            try:
-                num_points = len(target_world_seqs['L'])
-                if len(target_world_seqs['R']) != num_points:
-                    print("[Error] Left and Right trajectories must have the same length.")
-                    return False
-            except Exception as e:
-                print(f"[Error] Invalid target sequence format: {e}")
+        try:
+            num_points = len(target_world_seqs['L'])
+            if len(target_world_seqs['R']) != num_points:
+                print("[Error] Left and Right trajectories must have the same length.")
                 return False
+        except Exception as e:
+            print(f"[Error] Invalid target sequence format: {e}")
+            return False
 
-            if max_steps_per_point is None:
-                max_steps_per_point = self.MAX_STEPS
+        if max_steps_per_point is None:
+            max_steps_per_point = self.MAX_STEPS
 
-            # 2. 预计算：解算所有点的 IK
-            # ----------------------------------------------------
-            joint_targets_queue = {name: [] for name in self.ARM_NAMES}
-            
-            # 初始化 Fallback 值 (防止 IK 无解时飞车)
-            last_valid_joints = {}
+        # 2. 预计算：解算所有点的 IK
+        # ----------------------------------------------------
+        joint_targets_queue = {name: [] for name in self.ARM_NAMES}
+        
+        # 初始化 Fallback 值 (防止 IK 无解时飞车)
+        last_valid_joints = {}
+        for name in self.ARM_NAMES:
+            qpos_indices = self.arm_params[name]['qpos_indices_6dof']
+            if qpos_indices:
+                last_valid_joints[name] = self.data.qpos[qpos_indices].copy()
+            else:
+                last_valid_joints[name] = np.zeros(6)
+
+        failed_counts = {name: 0 for name in self.ARM_NAMES}
+
+        # 遍历每一个时间步
+        for i in range(num_points):
             for name in self.ARM_NAMES:
-                qpos_indices = self.arm_params[name]['qpos_indices_6dof']
-                if qpos_indices:
-                    last_valid_joints[name] = self.data.qpos[qpos_indices].copy()
-                else:
-                    last_valid_joints[name] = np.zeros(6)
-
-            failed_counts = {name: 0 for name in self.ARM_NAMES}
-
-            # 遍历每一个时间步
-            for i in range(num_points):
-                for name in self.ARM_NAMES:
-                    pose = target_world_seqs[name][i]
-                    
-                    # 坐标变换: World -> Base Frame
-                    pose_base = self._pose_tf_world2base(pose, name)
-                    
-                    # 解算 IK
-                    joints = self._ik_base(pose_base)
-                    
-                    if joints is None:
-                        failed_counts[name] += 1
-                        # IK 失败，沿用上一个有效姿态
-                        joints = last_valid_joints[name].copy()
-                    else:
-                        last_valid_joints[name] = joints.copy()
-                            
-                    joint_targets_queue[name].append(joints)
-
-            for name in self.ARM_NAMES:
-                if failed_counts[name] > 0:
-                    print(f"[Warning] Arm {name}: IK Failed for {failed_counts[name]} waypoints (used fallback).")
-
-            print("[Trajectory] All IK solved. Starting execution...")
-
-            # 3. 执行循环
-            # ----------------------------------------------------
-            current_idx = 0
-            
-            # 初始化第一个目标
-            current_joint_targets = {name: joint_targets_queue[name][0] for name in self.ARM_NAMES}
-            current_pose_targets = {name: target_world_seqs[name][0] for name in self.ARM_NAMES}
-            
-            # 更新可视化 Marker
-            for name in self.ARM_NAMES:
-                self._update_mocap_marker(current_pose_targets[name][:3], name)
-            
-            success_count = 0
-            is_finished = False  # 标记轨迹是否执行完毕
-            debug = 0
-            with mujoco.viewer.launch_passive(self.model, self.data) as viewer:
-                step_count_for_current = 0
+                pose = target_world_seqs[name][i]
                 
-                while viewer.is_running():
-                    step_start = time.time()
-                    
-                    # --- A. 下发控制 (Kinematic 或 Dynamic) ---
-                    if kinematic_only:
-                        # [运动学模式] 直接修改关节位置 (Teleport)
-                        for name in self.ARM_NAMES:
-                            params = self.arm_params[name]
-                            if params['qpos_indices_6dof']:
-                                self.data.qpos[params['qpos_indices_6dof']] = current_joint_targets[name]
-                            if params['qpos_indices_gripper']:
-                                self.data.qpos[params['qpos_indices_gripper']] = self.GRIPPER_OPEN_VAL
+                # 坐标变换: World -> Base Frame
+                pose_base = self._pose_tf_world2base(pose, name)
+                
+                # 解算 IK
+                joints = self._ik_base(pose_base)
+                
+                if joints is None:
+                    failed_counts[name] += 1
+                    # IK 失败，沿用上一个有效姿态
+                    joints = last_valid_joints[name].copy()
+                else:
+                    last_valid_joints[name] = joints.copy()
                         
-                        # 强制刷新几何体位置
-                        mujoco.mj_forward(self.model, self.data)
+                joint_targets_queue[name].append(joints)
+
+        for name in self.ARM_NAMES:
+            if failed_counts[name] > 0:
+                print(f"[Warning] Arm {name}: IK Failed for {failed_counts[name]} waypoints (used fallback).")
+
+        print("[Trajectory] All IK solved. Starting execution...")
+
+        # 3. 执行循环
+        # ----------------------------------------------------
+        current_idx = 0
+        
+        # 初始化第一个目标
+        current_joint_targets = {name: joint_targets_queue[name][0] for name in self.ARM_NAMES}
+        current_pose_targets = {name: target_world_seqs[name][0] for name in self.ARM_NAMES}
+        
+        # 更新可视化 Marker
+        for name in self.ARM_NAMES:
+            self._update_mocap_marker(current_pose_targets[name][:3], name)
+        
+        success_count = 0
+        is_finished = False  # 标记轨迹是否执行完毕
+        debug = 0
+        with mujoco.viewer.launch_passive(self.model, self.data) as viewer:
+            step_count_for_current = 0
+            
+            while viewer.is_running():
+                step_start = time.time()
+                
+                # --- A. 下发控制 (Kinematic 或 Dynamic) ---
+                if kinematic_only:
+                    # [运动学模式] 直接修改关节位置 (Teleport)
+                    for name in self.ARM_NAMES:
+                        params = self.arm_params[name]
+                        if params['qpos_indices_6dof']:
+                            self.data.qpos[params['qpos_indices_6dof']] = current_joint_targets[name]
+                        if params['qpos_indices_gripper']:
+                            self.data.qpos[params['qpos_indices_gripper']] = self.GRIPPER_OPEN_VAL
+                    
+                    # 强制刷新几何体位置
+                    mujoco.mj_forward(self.model, self.data)
+                else:
+                    # [动力学模式] 设置控制信号 (Torque/Position Control)
+                    for name in self.ARM_NAMES:
+                        params = self.arm_params[name]
+                        if params['ctrl_indices_6dof']:
+                            self.data.ctrl[params['ctrl_indices_6dof']] = current_joint_targets[name]
+                        if params['ctrl_indices_gripper']:
+                            self.data.ctrl[params['ctrl_indices_gripper']] = self.GRIPPER_OPEN_VAL
+                
+                # --- B. 物理步进 ---
+                if not kinematic_only:
+                    mujoco.mj_step(self.model, self.data)
+
+                # 只有未完成时才进行误差检测和目标切换
+                if not is_finished:
+                    step_count_for_current += 1
+                    
+                    # --- C. 误差检测 ---
+                    all_reached = True
+                    max_error = 0.0
+                    
+                    for name in self.ARM_NAMES:
+                        curr = self._get_ee_pose_world(name)[:3]
+                        targ = current_pose_targets[name][:3]
+                        err = np.linalg.norm(curr - targ)
+                        max_error = max(max_error, err)
+                        
+                        if err > self.POSITION_THRESHOLD:
+                            all_reached = False
+                    
+                    # --- D. 切换目标逻辑 ---
+                    # 第一个点通常距离较远，给更多时间 (MAX_STEPS)
+                    if current_idx == 0:
+                        timeout = step_count_for_current >= self.MAX_STEPS
                     else:
-                        # [动力学模式] 设置控制信号 (Torque/Position Control)
-                        for name in self.ARM_NAMES:
-                            params = self.arm_params[name]
-                            if params['ctrl_indices_6dof']:
-                                self.data.ctrl[params['ctrl_indices_6dof']] = current_joint_targets[name]
-                            if params['ctrl_indices_gripper']:
-                                self.data.ctrl[params['ctrl_indices_gripper']] = self.GRIPPER_OPEN_VAL
-                    
-                    # --- B. 物理步进 ---
-                    if not kinematic_only:
-                        mujoco.mj_step(self.model, self.data)
+                        timeout = step_count_for_current >= max_steps_per_point
 
-                    # 只有未完成时才进行误差检测和目标切换
-                    if not is_finished:
-                        step_count_for_current += 1
+                    # 如果到达或超时，切换下一个点
+                    if all_reached or timeout:
+                        status = "✅ Reached" if all_reached else "⚠️ Timeout"
+                        # 可选：打印每个点的状态
+                        print(f"Waypoint {current_idx}: {status} | Max Error: {max_error:.4f}m")
                         
-                        # --- C. 误差检测 ---
-                        all_reached = True
-                        max_error = 0.0
+                        if all_reached: success_count += 1
                         
-                        for name in self.ARM_NAMES:
-                            curr = self._get_ee_pose_world(name)[:3]
-                            targ = current_pose_targets[name][:3]
-                            err = np.linalg.norm(curr - targ)
-                            max_error = max(max_error, err)
-                            
-                            if err > self.POSITION_THRESHOLD:
-                                all_reached = False
-                        
-                        # --- D. 切换目标逻辑 ---
-                        # 第一个点通常距离较远，给更多时间 (MAX_STEPS)
-                        if current_idx == 0:
-                            timeout = step_count_for_current >= self.MAX_STEPS
+                        current_idx += 1
+                        if current_idx >= num_points:
+                            print(f"\n[Trajectory] All waypoints completed! Holding final position...")
+                            is_finished = True # 标记完成，但不退出循环
                         else:
-                            timeout = step_count_for_current >= max_steps_per_point
-
-                        # 如果到达或超时，切换下一个点
-                        if all_reached or timeout:
-                            status = "✅ Reached" if all_reached else "⚠️ Timeout"
-                            # 可选：打印每个点的状态
-                            print(f"Waypoint {current_idx}: {status} | Max Error: {max_error:.4f}m")
+                            # 更新目标
+                            current_joint_targets = {name: joint_targets_queue[name][current_idx] for name in self.ARM_NAMES}
+                            current_pose_targets = {name: target_world_seqs[name][current_idx] for name in self.ARM_NAMES}
                             
-                            if all_reached: success_count += 1
+                            for name in self.ARM_NAMES:
+                                self._update_mocap_marker(current_pose_targets[name][:3], name)
                             
-                            current_idx += 1
-                            if current_idx >= num_points:
-                                print(f"\n[Trajectory] All waypoints completed! Holding final position...")
-                                is_finished = True # 标记完成，但不退出循环
-                            else:
-                                # 更新目标
-                                current_joint_targets = {name: joint_targets_queue[name][current_idx] for name in self.ARM_NAMES}
-                                current_pose_targets = {name: target_world_seqs[name][current_idx] for name in self.ARM_NAMES}
-                                
-                                for name in self.ARM_NAMES:
-                                    self._update_mocap_marker(current_pose_targets[name][:3], name)
-                                
-                                step_count_for_current = 0
+                            step_count_for_current = 0
 
-                    # --- E. 渲染 ---
-                    viewer.sync()
+                # --- E. 渲染 ---
+                viewer.sync()
 
-                    # --- F. 帧率控制 ---
-                    time_until_next = self.model.opt.timestep - (time.time() - step_start)
-                    if time_until_next > 0:
-                        time.sleep(time_until_next)
-                    
-            return success_count == num_points
+                # --- F. 帧率控制 ---
+                time_until_next = self.model.opt.timestep - (time.time() - step_start)
+                if time_until_next > 0:
+                    time.sleep(time_until_next)
+                
+        return success_count == num_points
+    
+    # ========================================================
+    # TODO：轨迹跟踪，加入相机位姿序列，得到RGB+MASK
+    # ========================================================
+    def move_trajectory_with_camera(self, target_seqs_L_world, target_seqs_R_world, camera_poses_world, max_steps_per_point=None, kinematic_only=False):
+        """
+        连续执行一系列双臂目标点。
+        
+        Args:
+            target_seqs_L_world (np.array): 左臂目标序列，形状 (N, 6)
+            target_seqs_R_world (np.array): 右臂目标序列，形状 (N, 6)
+            camera_poses_world (np.array): 相机位姿序列，形状 (N, 6)
+            max_steps_per_point (int, optional): 每个目标点的最大步数。默认使用 self.MAX_STEPS。
+            kinematic_only (bool): 是否仅使用运动学模式（直接设置关节位置），忽略动力学和碰撞。
+            
+        Returns:
+            captured_frames (list): 录制的图像列表。
+            captured_masks (list): 录制的掩码列表。
+        """
+        pass
             
        
 

@@ -243,6 +243,25 @@ class SingleArmController:
 
         return success_count == total_points
 
+    # ========================================================
+    # TODO：轨迹跟踪，加入相机位姿序列，得到RGB+MASK
+    # ========================================================
+    def move_trajectory_with_camera(self, target_seqs_world, camera_poses_world, max_steps_per_point=None, kinematic_only=False):
+        """
+        连续执行一系列单臂目标点。
+        
+        Args:
+            target_seqs_world (np.array): 形状 (N, 6) 的数组，包含 N 个目标位姿
+            camera_poses_world (np.array): 形状 (N, 6) 的数组，包含 N 个相机位姿
+            max_steps_per_point (int): 每个点的最大等待步数
+            kinematic_only (bool): 是否仅进行运动学控制 (无物理/碰撞/力矩)
+
+        Returns:
+            List of captured images (np.array)
+            List of segmentation masks (np.array)
+        """
+        pass
+
 # ========================================================
 # 使用示例
 # ========================================================
