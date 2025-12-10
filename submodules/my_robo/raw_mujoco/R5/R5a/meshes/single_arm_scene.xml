@@ -26,6 +26,8 @@
         <geom type="sphere" size="0.02" rgba="1 0 0 0.5" contype="0" conaffinity="0"/>
     </body>
     
+    <camera name="camera" pos="0 0 1.0" euler="0 0 0"/>
+
     <body name="base_link" pos="0 0 1.0">
       <geom type="mesh" rgba="0.898 0.917 0.929 1" mesh="base_link"/>
       <body name="link1" pos="0 0 0.0565">

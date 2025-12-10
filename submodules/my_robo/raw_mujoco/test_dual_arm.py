@@ -94,7 +94,7 @@ if __name__ == "__main__":
     data_path_L = os.path.join(current_dir, "free_hand_N_to_F_smoothed_actions_left_in_camera_optical_frame.npz")
     data_path_R = os.path.join(current_dir, "free_hand_N_to_F_smoothed_actions_right_in_camera_optical_frame.npz")
 
-    dual_robot = DualArmController(xml_path)
+    dual_robot = DualArmController(xml_path, max_steps=100)
     base_pose_world_L = dual_robot._get_base_pose_world("L")
     base_pose_world_R = dual_robot._get_base_pose_world("R")
     Mat_world_T_base_L = pose_to_matrix(base_pose_world_L)
@@ -122,7 +122,7 @@ if __name__ == "__main__":
 
     if seqs_L_in_world is not None and seqs_R_in_world is not None:
         try:
-            dual_robot.move_trajectory(seqs_L_in_world, seqs_R_in_world, kinematic_only=True)
+            dual_robot.move_trajectory(seqs_L_in_world, seqs_R_in_world, 50, kinematic_only=True)
         except Exception as e:
             print(f"Error during dual arm trajectory execution: {e}")
     else:
