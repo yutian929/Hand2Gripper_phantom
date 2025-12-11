@@ -512,10 +512,6 @@ if __name__ == "__main__":
             # 使用 numpy 的高级索引，直接把 ID 映射成颜色
             # 假如 geom_ids 里有值 5，它会去 color_palette[5] 取颜色
             mask_vis = color_palette[geom_ids] 
-            
-            # 【方法 B】简单灰度归一化 (备选)
-            # mask_norm = ((geom_ids / geom_ids.max()) * 255).astype(np.uint8)
-            # mask_vis = cv2.applyColorMap(mask_norm, cv2.COLORMAP_JET)
 
             # 3. 显示
             cv2.imshow(f"RGB Frame {i}", bgr_img)

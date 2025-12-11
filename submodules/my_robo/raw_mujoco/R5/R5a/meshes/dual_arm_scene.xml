@@ -29,6 +29,8 @@
     <body name="target_marker_R" mocap="true" pos="0 0 0">
         <geom type="sphere" size="0.02" rgba="0 0 1 0.5" contype="0" conaffinity="0"/>
     </body>
+
+    <camera name="camera" pos="0 0 1.0" euler="0 0 0"/>
     
     <body name="base_link_L" pos="0 0.25 1.0">
       <geom type="mesh" rgba="0.898 0.917 0.929 1" mesh="base_link"/>

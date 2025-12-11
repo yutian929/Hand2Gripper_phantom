@@ -1,92 +1,31 @@
+import cv2
 import numpy as np
 import os
 import mujoco
 from scipy.spatial.transform import Rotation as R
 from dual_arm_controller import DualArmController
-from test_single_arm import visualize_trajectory, pose_to_matrix, matrix_to_pose
-
-# ---------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------
-# Define Camera to Base transforms
-# TODO: Fill in the actual calibration matrices
-
-# Camera relative to Left Arm Base
-Mat_base_L_T_camera = np.array([
-    [1.0, 0.0, 0.0, 0.0,],
-    [0.0, 1.0, 0.0, -0.25,],
-    [0.0, 0.0, 1.0, 0.2,],
-    [0.0, 0.0, 0.0, 1.0,],
-])
-
-# Camera relative to Right Arm Base
-Mat_base_R_T_camera = np.array([
-    [1.0, 0.0, 0.0, 0.0,],
-    [0.0, 1.0, 0.0, 0.25,],
-    [0.0, 0.0, 1.0, 0.2,],
-    [0.0, 0.0, 0.0, 1.0,],
-])
-
-# ---------------------------------------------------------
-# Helper Functions
-# ---------------------------------------------------------
-def load_and_transform_data(filepath):
-    """
-    Load .npz data and transform from Optical Frame to Camera Link Frame.
-    Returns:
-        target_seq_world (np.array): Shape (N, 6) -> [x, y, z, rx, ry, rz]
-    """
-    if not os.path.exists(filepath):
-        print(f"Error: File {filepath} not found.")
-        return None
-
-    try:
-        data = np.load(filepath)
-        ee_pts = data["ee_pts"]   # (N, 3)
-        ee_oris = data["ee_oris"] # (N, 3, 3)
-    except Exception as e:
-        print(f"Error loading npz: {e}")
-        return None
-
-    # Transformation Matrix: Optical -> Camera Link
-    # x' = z, y' = -x, z' = -y
-    R_transform = np.array([
-        [0, 0, 1],
-        [-1, 0, 0],
-        [0, -1, 0]
-    ])
-
-    # 1. Transform Positions
-    ee_pts_transformed = (R_transform @ ee_pts.T).T
-
-    # 2. Transform Orientations
-    ee_oris_transformed = np.matmul(R_transform, ee_oris)
-
-    # Additional 180 degree rotation around Z axis
-    R_z180 = np.array([
-        [-1, 0, 0],
-        [0, -1, 0],
-        [0, 0, 1]
-    ])
-    ee_oris_transformed = np.matmul(ee_oris_transformed, R_z180)
-
-    # 3. Convert Rotation Matrices to Euler Angles (xyz)
-    N = len(ee_pts)
-    target_seq = np.zeros((N, 6))
-    
-    target_seq[:, :3] = ee_pts_transformed
-    
-    # Batch convert rotations
-    r = R.from_matrix(ee_oris_transformed)
-    euler_angles = r.as_euler('xyz', degrees=False)
-    target_seq[:, 3:] = euler_angles
-
-    return target_seq
+from test_single_arm import load_and_transform_data, visualize_trajectory, pose_to_matrix, matrix_to_pose
 
 # ---------------------------------------------------------
 # Main Execution
 # ---------------------------------------------------------
 if __name__ == "__main__":
+    # Camera relative to Left Arm Base
+    Mat_base_L_T_camera = np.array([
+        [1.0, 0.0, 0.0, 0.0,],
+        [0.0, 1.0, 0.0, -0.25,],
+        [0.0, 0.0, 1.0, 0.2,],
+        [0.0, 0.0, 0.0, 1.0,],
+    ])
+
+    # Camera relative to Right Arm Base
+    Mat_base_R_T_camera = np.array([
+        [1.0, 0.0, 0.0, 0.0,],
+        [0.0, 1.0, 0.0, 0.25,],
+        [0.0, 0.0, 1.0, 0.2,],
+        [0.0, 0.0, 0.0, 1.0,],
+    ])
+
     current_dir = os.path.dirname(os.path.abspath(__file__))
     xml_path = os.path.join(current_dir, "R5", "R5a", "meshes", "dual_arm_scene.xml")
     
@@ -117,12 +56,36 @@ if __name__ == "__main__":
     seqs_R_in_world = np.array([matrix_to_pose(mat) for mat in Mat_world_T_seqs_R])
     print(f"seqs_L_in_world shape: {seqs_L_in_world.shape}")
     print(f"seqs_R_in_world shape: {seqs_R_in_world.shape}")
-    visualize_trajectory(seqs_L_in_world, title="Left Arm Trajectory in World Frame")
-    visualize_trajectory(seqs_R_in_world, title="Right Arm Trajectory in World Frame")
+    # visualize_trajectory(seqs_L_in_world, title="Left Arm Trajectory in World Frame")
+    # visualize_trajectory(seqs_R_in_world, title="Right Arm Trajectory in World Frame")
+
+    # assume camera base fixed
+    Mat_world_T_camera_L = Mat_world_T_base_L @ Mat_base_L_T_camera
+    Mat_world_T_camera_R = Mat_world_T_base_R @ Mat_base_R_T_camera
+    # These 2 Mat should be very close
+    diff = np.linalg.norm(Mat_world_T_camera_L - Mat_world_T_camera_R)
+    assert diff < 1e-6, f"Camera world transforms from two arms differ significantly! Difference: {diff}"
+    camera_poses_world = np.array([matrix_to_pose(Mat_world_T_camera_L) for _ in range(len(seqs_L_in_world))])
 
     if seqs_L_in_world is not None and seqs_R_in_world is not None:
         try:
-            dual_robot.move_trajectory(seqs_L_in_world, seqs_R_in_world, 50, kinematic_only=True)
+            print("########## Executing dual arm move_trajectory ##########")
+            # dual_robot.move_trajectory(seqs_L_in_world, seqs_R_in_world, 50, kinematic_only=True)
+            print("########## Executing dual arm move_trajectory_with_camera ##########")
+            frames, masks = dual_robot.move_trajectory_with_camera(
+                seqs_L_in_world, seqs_R_in_world, camera_poses_world, 50, kinematic_only=True)
+            
+            for i, (frame, mask) in enumerate(zip(frames, masks)):
+                cv2.imshow("Frame", cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+                
+                geom_ids = mask[:, :, 0]
+                # ID 0 -> Black [0,0,0], Others -> White [255,255,255]
+                mask_vis = np.zeros((geom_ids.shape[0], geom_ids.shape[1], 3), dtype=np.uint8)
+                mask_vis[geom_ids > 0] = [255, 255, 255]
+                
+                cv2.imshow("Mask", mask_vis)
+                cv2.waitKey(100)
+            cv2.destroyAllWindows()
         except Exception as e:
             print(f"Error during dual arm trajectory execution: {e}")
     else:
