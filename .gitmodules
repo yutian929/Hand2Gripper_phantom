@@ -22,3 +22,9 @@
 [submodule "submodules/Hand2Gripper_hand2gripper"]
 	path = submodules/Hand2Gripper_hand2gripper
 	url = https://github.com/yutian929/Hand2Gripper_hand2gripper.git
+[submodule "submodules/Hand2Gripper_robosuite"]
+	path = submodules/Hand2Gripper_robosuite
+	url = https://github.com/yutian929/Hand2Gripper_robosuite.git
+[submodule "submodules/Hand2Gripper_robosuite_models"]
+	path = submodules/Hand2Gripper_robosuite_models
+	url = https://github.com/yutian929/Hand2Gripper_robosuite_models.git

@@ -127,7 +127,7 @@ def process_all_demos(cfg: DictConfig, processor_classes: dict) -> None:
             "HAND_INPAINT",
             # "ACTION",
             # "SMOOTHING",
-            "ROBOT_INPAINT"
+            # "ROBOT_INPAINT"
             ):
             continue
         else:
@@ -137,10 +137,10 @@ def process_all_demos(cfg: DictConfig, processor_classes: dict) -> None:
         processor = processor_cls(cfg)
         for data_sub_folder in tqdm(all_data_folders):
             # >>> Hand2Gripper >>> #
-            # if data_sub_folder in (
-            #     '0',
-            # ):
-            #     continue
+            if data_sub_folder in (
+                '0',
+            ):
+                continue
             # <<< Hand2Gripper <<< #
             try:
                 processor.process_one_demo(data_sub_folder)
