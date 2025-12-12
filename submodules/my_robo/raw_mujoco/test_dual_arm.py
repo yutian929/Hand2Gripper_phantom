@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import os
 import mujoco
+import mediapy as media
 from scipy.spatial.transform import Rotation as R
 from dual_arm_controller import DualArmController
 from test_single_arm import load_and_transform_data, visualize_trajectory, pose_to_matrix, matrix_to_pose
@@ -32,6 +33,8 @@ if __name__ == "__main__":
     # Data paths
     data_path_L = os.path.join(current_dir, "free_hand_N_to_F_smoothed_actions_left_in_camera_optical_frame.npz")
     data_path_R = os.path.join(current_dir, "free_hand_N_to_F_smoothed_actions_right_in_camera_optical_frame.npz")
+    human_inpaint_video_path = os.path.join(current_dir, "free_hand_N_to_F_human_inpaint_video.mkv")
+    human_video_path = os.path.join(current_dir, "free_hand_N_to_F_human_video.mp4")
 
     dual_robot = DualArmController(xml_path, max_steps=100)
     base_pose_world_L = dual_robot._get_base_pose_world("L")
@@ -74,16 +77,25 @@ if __name__ == "__main__":
             print("########## Executing dual arm move_trajectory_with_camera ##########")
             frames, masks = dual_robot.move_trajectory_with_camera(
                 seqs_L_in_world, seqs_R_in_world, camera_poses_world, 50, kinematic_only=True)
-            
-            for i, (frame, mask) in enumerate(zip(frames, masks)):
-                cv2.imshow("Frame", cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+            rgbs_human = media.read_video(human_video_path)
+            rgbs_inpaint = media.read_video(human_inpaint_video_path)
+            for i, (rgb_human, rgb_inpaint, frame, mask) in enumerate(zip(rgbs_human, rgbs_inpaint, frames, masks)):
+                cv2.imshow("Human Original Video", cv2.cvtColor(rgb_human, cv2.COLOR_RGB2BGR))
+                cv2.imshow("Human Inpainted Video", cv2.cvtColor(rgb_inpaint, cv2.COLOR_RGB2BGR))
+                cv2.imshow("Frame in mujoco", cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
                 
                 geom_ids = mask[:, :, 0]
                 # ID 0 -> Black [0,0,0], Others -> White [255,255,255]
                 mask_vis = np.zeros((geom_ids.shape[0], geom_ids.shape[1], 3), dtype=np.uint8)
                 mask_vis[geom_ids > 0] = [255, 255, 255]
                 
-                cv2.imshow("Mask", mask_vis)
+                cv2.imshow("Mask in mujoco", mask_vis)
+
+                mask_bool = geom_ids > 0
+                blended = rgb_inpaint.copy()
+                blended[mask_bool] = frame[mask_bool]
+                cv2.imshow("Blended Frame", cv2.cvtColor(blended, cv2.COLOR_RGB2BGR))
+                
                 cv2.waitKey(100)
             cv2.destroyAllWindows()
         except Exception as e:
