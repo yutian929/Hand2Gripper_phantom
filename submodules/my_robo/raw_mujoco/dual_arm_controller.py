@@ -3,7 +3,7 @@ import mujoco.viewer
 import numpy as np
 import time
 import os
-import bimanual
+from .ARX_R5_python import bimanual
 from scipy.spatial.transform import Rotation as R
 
 # 假设 bimanual.inverse_kinematics 模块可用
