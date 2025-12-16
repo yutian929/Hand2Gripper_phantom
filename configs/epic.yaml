@@ -21,14 +21,14 @@ debug_cameras: ['sideview', 'birdview', 'frontview'] # Add other robomimic camer
 # EPIC-KITCHENS configuration override
 input_resolution: 480
 output_resolution: 480
-robot: "Arx5"
-my_robo: true
-# robot: "UR5e"
-# my_robo: false
+# robot: "Arx5"
+# my_robo: true
+robot: "UR5e"
+my_robo: false
 gripper: "Robotiq85"
 square: false
 epic: true
-bimanual_setup: ""
+bimanual_setup: "shoulders"
 target_hand: "both"
 constrained_hand: false
 depth_for_overlay: true

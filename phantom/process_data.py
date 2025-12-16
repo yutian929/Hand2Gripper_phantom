@@ -120,13 +120,13 @@ def process_all_demos(cfg: DictConfig, processor_classes: dict) -> None:
         print(f"----------------- {mode.upper()} PROCESSOR -----------------")
         # >>> Hand2Gripper >>> #
         if mode.upper() in (
-            'BBOX', 
-            'HAND_SEGMENTATION',
-            'HAND2D', 
-            'ARM_SEGMENTATION', 
-            "HAND_INPAINT",
-             "ACTION",
-             "SMOOTHING",
+            # 'BBOX', 
+            # 'HAND_SEGMENTATION',
+            # 'HAND2D', 
+            # 'ARM_SEGMENTATION', 
+            # "HAND_INPAINT",
+            #  "ACTION",
+            #  "SMOOTHING",
             # "ROBOT_INPAINT"
             ):
             continue
@@ -138,7 +138,8 @@ def process_all_demos(cfg: DictConfig, processor_classes: dict) -> None:
         for data_sub_folder in tqdm(all_data_folders):
             # >>> Hand2Gripper >>> #
             if data_sub_folder in (
-                '0',
+                '', 
+                # '0',
             ):
                 continue
             # <<< Hand2Gripper <<< #
