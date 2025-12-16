@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 import os
 from scipy.spatial.transform import Rotation as R
-from single_arm_controller import SingleArmController
+from .single_arm_controller import SingleArmController
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 

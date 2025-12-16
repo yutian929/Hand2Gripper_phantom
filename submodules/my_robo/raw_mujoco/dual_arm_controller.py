@@ -4,7 +4,7 @@ import numpy as np
 import time
 import os
 import cv2
-import bimanual
+from .ARX_R5_python import bimanual
 from scipy.spatial.transform import Rotation as R
 
 # 特定补偿值 (与单臂代码一致)

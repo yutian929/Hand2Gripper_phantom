@@ -28,7 +28,7 @@ my_robo: true
 gripper: "Robotiq85"
 square: false
 epic: true
-bimanual_setup: "shoulders"
+bimanual_setup: ""
 target_hand: "both"
 constrained_hand: false
 depth_for_overlay: true

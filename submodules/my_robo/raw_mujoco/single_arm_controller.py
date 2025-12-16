@@ -4,7 +4,7 @@ import numpy as np
 import time
 import cv2
 import os
-import bimanual
+from .ARX_R5_python import bimanual
 from scipy.spatial.transform import Rotation as R
 
 FLANGE_POS_OFFSET = np.array([-0.1, 0.0, -0.16])  # 特定补偿值
