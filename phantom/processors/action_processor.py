@@ -37,7 +37,8 @@ logger = logging.getLogger(__name__)
 
 # >>> Hand2Gripper >>>
 import mediapy as media
-from hand2gripper_vslam._orb_slam3 import ORB_SLAM3_RGBD_VO
+# from hand2gripper_vslam._orb_slam3 import ORB_SLAM3_RGBD_VO
+from hand2gripper_vslam.rtab_map_client import RTABMapClient
 # <<< Hand2Gripper <<<
 
 @dataclass
@@ -126,26 +127,12 @@ class ActionProcessor(BaseProcessor):
             # <<< Hand2Gripper <<<
         
         # >>> Hand2Gripper >>>
-        vslam = ORB_SLAM3_RGBD_VO(paths.video_left, paths.depth, paths.hand2gripper_cam_intri)
-        if os.path.exists(paths.masks_arm):
-            arm_masks = np.load(paths.masks_arm)  # (N, H, W)
-            cam_traj = vslam.run_with_mask(arm_masks)
-        else:
-            cam_traj = vslam.run()
-        np.save(paths.hand2gripper_cam_traj, cam_traj)
-        
-        robot_base_traj = self.T_cam2robot @ cam_traj  # TODO: Need to verify the correctness
-        np.save(paths.hand2gripper_robot_base_traj, robot_base_traj)
-        
-        # Call the new visualization function
-        if self.visualize_traj:
-            self.visualize_trajectories(
-                cam_traj=cam_traj,
-                robot_base_traj=robot_base_traj,
-                left_actions=left_actions,
-                right_actions=right_actions,
-                T_cam2robot=self.T_cam2robot
-            )
+        # using RTAB-Map VSLAM to get camera trajectory
+        breakpoint()
+        rtab_map_client = RTABMapClient(paths.data_path.resolve())
+        process = rtab_map_client.launch(use_new_terminal=False, capture_output=True)
+        target_text = ">>> VSLAM PLAYBACK COMPLETE <<<" 
+        rtab_map_client.wait_for_text(process, target_text, timeout=len(imgs_rgb)*0.1)
         # <<< Hand2Gripper <<<
 
     # >>> Hand2Gripper >>>

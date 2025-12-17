@@ -18,7 +18,7 @@ class RGBDPlayerAndMapperANDMasker(Node):
         # --- 参数声明 ---
         self.declare_parameter('data_dir', '')
         self.declare_parameter('frequency', 30.0)
-        self.declare_parameter('output_json', 'traj.json') 
+        self.declare_parameter('output_json', 'camera_link_traj.json')
 
         # --- 获取参数 ---
         data_dir = self.get_parameter('data_dir').get_parameter_value().string_value
