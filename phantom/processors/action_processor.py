@@ -128,11 +128,11 @@ class ActionProcessor(BaseProcessor):
         
         # >>> Hand2Gripper >>>
         # using RTAB-Map VSLAM to get camera trajectory
-        breakpoint()
         rtab_map_client = RTABMapClient(paths.data_path.resolve())
         process = rtab_map_client.launch(use_new_terminal=False, capture_output=True)
         target_text = ">>> VSLAM PLAYBACK COMPLETE <<<" 
         rtab_map_client.wait_for_text(process, target_text, timeout=len(imgs_rgb)*0.1)
+        self.visualize_trajectories(paths.hand2gripper_vslam_camera_link_traj)
         # <<< Hand2Gripper <<<
 
     # >>> Hand2Gripper >>>
@@ -216,119 +216,70 @@ class ActionProcessor(BaseProcessor):
     # <<< Hand2Gripper <<<
 
     @staticmethod
-    def visualize_trajectories(cam_traj, robot_base_traj, left_actions, right_actions, T_cam2robot):
-        """
-        根据要求，绘制三个独立的轨迹图，并为每个轨迹添加方向指示。
-        1. cam_traj 的轨迹
-        2. robot_base_traj 的轨迹
-        3. left_actions 和 right_actions 的轨迹
-
-        Args:
-            cam_traj (np.ndarray): 相机轨迹, shape (N, 4, 4).
-            robot_base_traj (np.ndarray): 机器人基座轨迹, shape (N, 4, 4).
-            left_actions (EEActions): 左手动作.
-            right_actions (EEActions): 右手动作.
-            T_cam2robot (np.ndarray): 从相机到机器人基座的变换矩阵.
-        """
-        from matplotlib import pyplot as plt
-
-        fig = plt.figure(figsize=(24, 8))
-
-        def plot_trajectory_with_orientation(ax, positions, orientations, label, color, start_color, end_color):
-            """
-            绘制轨迹及其方向的辅助函数。
-            - positions: (N, 3) 轨迹点
-            - orientations: (N, 3, 3) 旋转矩阵
-            """
-            if len(positions) == 0:
-                return
-
-            # 绘制轨迹线
-            ax.plot(positions[:, 0], positions[:, 1], positions[:, 2], label=label, color=color)
-            
-            # 标注起点和终点
-            ax.scatter(positions[0, 0], positions[0, 1], positions[0, 2], color=start_color, marker='o', s=100, label=f'{label} Start')
-            ax.scatter(positions[-1, 0], positions[-1, 1], positions[-1, 2], color=end_color, marker='s', s=100, label=f'{label} End')
-
-            # 根据轨迹的运动范围动态调整坐标轴长度
-            if len(positions) > 1:
-                max_range = np.max(np.max(positions, axis=0) - np.min(positions, axis=0))
-                axis_length = max_range * 0.05 if max_range > 0 else 0.05
-            else:
-                axis_length = 0.05
-            
-            # 最多绘制10个坐标系
-            step = max(1, len(positions) // 10)
-            for i in range(0, len(positions), step):
-                origin = positions[i]
-                R = orientations[i]
-                # 绘制X, Y, Z轴
-                ax.quiver(origin[0], origin[1], origin[2], R[0, 0], R[1, 0], R[2, 0], color='r', length=axis_length)
-                ax.quiver(origin[0], origin[1], origin[2], R[0, 1], R[1, 1], R[2, 1], color='g', length=axis_length)
-                ax.quiver(origin[0], origin[1], origin[2], R[0, 2], R[1, 2], R[2, 2], color='b', length=axis_length)
-
-        # --- 图 1: cam_traj 轨迹 ---
-        ax1 = fig.add_subplot(131, projection='3d')
-        plot_trajectory_with_orientation(
-            ax1, 
-            positions=cam_traj[:, :3, 3], 
-            orientations=cam_traj[:, :3, :3], 
-            label='cam_traj', 
-            color='magenta',
-            start_color='green',
-            end_color='red'
-        )
-        ax1.set_title("Camera Trajectory (cam_traj)")
-        ax1.set_xlabel("X"); ax1.set_ylabel("Y"); ax1.set_zlabel("Z")
-        ax1.legend()
-        ax1.set_aspect('equal', adjustable='box')
-
-        # --- 图 2: robot_base_traj 轨迹 ---
-        ax2 = fig.add_subplot(132, projection='3d')
-        plot_trajectory_with_orientation(
-            ax2,
-            positions=robot_base_traj[:, :3, 3],
-            orientations=robot_base_traj[:, :3, :3],
-            label='robot_base_traj',
-            color='purple',
-            start_color='green',
-            end_color='red'
-        )
-        ax2.set_title("Robot Base Trajectory (robot_base_traj)")
-        ax2.set_xlabel("X"); ax2.set_ylabel("Y"); ax2.set_zlabel("Z")
-        ax2.legend()
-        ax2.set_aspect('equal', adjustable='box')
-
-        # --- 图 3: left_actions 和 right_actions 轨迹 ---
-        ax3 = fig.add_subplot(133, projection='3d')
-        if left_actions is not None and len(left_actions.ee_pts) > 0:
-            plot_trajectory_with_orientation(
-                ax3,
-                positions=left_actions.ee_pts,
-                orientations=left_actions.ee_oris,
-                label='Left Action',
-                color='c',
-                start_color='blue',
-                end_color='darkcyan'
-            )
-
-        if right_actions is not None and len(right_actions.ee_pts) > 0:
-            plot_trajectory_with_orientation(
-                ax3,
-                positions=right_actions.ee_pts,
-                orientations=right_actions.ee_oris,
-                label='Right Action',
-                color='orange',
-                start_color='yellow',
-                end_color='darkorange'
-            )
+    def visualize_trajectories(camera_link_traj_path: str):
+        import json
+        import matplotlib.pyplot as plt
         
-        ax3.set_title("Hand Actions Trajectory")
-        ax3.set_xlabel("X"); ax3.set_ylabel("Y"); ax3.set_zlabel("Z")
-        ax3.legend()
-        ax3.set_aspect('equal', adjustable='box')
+        with open(camera_link_traj_path, 'r') as f:
+            data = json.load(f)
+            
+        # Sort keys numerically to ensure correct order
+        sorted_keys = sorted(data.keys(), key=lambda x: int(x))
+        
+        positions = []
+        quats = []
+        
+        for key in sorted_keys:
+            pose = data[key]['pose']
+            positions.append([pose['tx'], pose['ty'], pose['tz']])
+            quats.append([pose['qx'], pose['qy'], pose['qz'], pose['qw']])
+            
+        positions = np.array(positions)
+        quats = np.array(quats)
+        
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        
+        # Plot trajectory path
+        ax.plot(positions[:, 0], positions[:, 1], positions[:, 2], label='Path', color='black', linewidth=2)
+        ax.scatter(positions[0, 0], positions[0, 1], positions[0, 2], c='green', marker='o', s=50, label='Start')
+        ax.scatter(positions[-1, 0], positions[-1, 1], positions[-1, 2], c='red', marker='x', s=50, label='End')
+        
+        # Determine scale for coordinate frames based on trajectory extent
+        if len(positions) > 0:
+            max_range = np.ptp(positions, axis=0).max()
+            # Increase scale factor to 0.3 (30% of trajectory size) for better visibility
+            scale = max_range * 0.3 if max_range > 1e-6 else 0.01
+        else:
+            scale = 0.01
 
-        plt.tight_layout()
+        # Plot orientation frames at intervals
+        step = max(1, len(positions) // 15)  # Show ~15 frames
+        for i in range(0, len(positions), step):
+            pos = positions[i]
+            # Convert quaternion [x, y, z, w] to rotation matrix
+            R = Rotation.from_quat(quats[i]).as_matrix()
+            
+            # Plot RGB axes: X (Red), Y (Green), Z (Blue)
+            # normalize=True ensures arrows are unit length before scaling
+            ax.quiver(pos[0], pos[1], pos[2], R[0, 0], R[1, 0], R[2, 0], color='r', length=scale, normalize=True)
+            ax.quiver(pos[0], pos[1], pos[2], R[0, 1], R[1, 1], R[2, 1], color='g', length=scale, normalize=True)
+            ax.quiver(pos[0], pos[1], pos[2], R[0, 2], R[1, 2], R[2, 2], color='b', length=scale, normalize=True)
+
+        ax.set_xlabel('X (m)')
+        ax.set_ylabel('Y (m)')
+        ax.set_zlabel('Z (m)')
+        ax.set_title('Camera Trajectory Visualization')
+        
+        # Set equal aspect ratio for better visualization
+        mid_x = (positions[:, 0].max() + positions[:, 0].min()) * 0.5
+        mid_y = (positions[:, 1].max() + positions[:, 1].min()) * 0.5
+        mid_z = (positions[:, 2].max() + positions[:, 2].min()) * 0.5
+        ax.set_xlim(mid_x - max_range/2, mid_x + max_range/2)
+        ax.set_ylim(mid_y - max_range/2, mid_y + max_range/2)
+        ax.set_zlim(mid_z - max_range/2, mid_z + max_range/2)
+        
+        ax.legend()
         plt.show()
 
 

@@ -153,8 +153,10 @@ class RobotInpaintProcessor(BaseProcessor):
                 # 2. 准备渲染用的轨迹数据 (Pose 6D)
                 # -------------------------------------
                 # 定义相机与基座的变换
-                Mat_base_L_T_camera = np.array([[1., 0., 0., 0.], [0., 1., 0., -0.25], [0., 0., 1., 0.2], [0., 0., 0., 1.]])
-                Mat_base_R_T_camera = np.array([[1., 0., 0., 0.], [0., 1., 0., 0.25], [0., 0., 1., 0.2], [0., 0., 0., 1.]])
+                hand_eye_calib_L = np.load(self.eye_to_hand_left)
+                hand_eye_calib_R = np.load(self.eye_to_hand_right)
+                Mat_base_L_T_camera = hand_eye_calib_L["T_base_link"]
+                Mat_base_R_T_camera = hand_eye_calib_R["T_base_link"]
                 Mat_world_T_base_L = pose_to_matrix(dual_robot._get_base_pose_world("L"))
                 Mat_world_T_base_R = pose_to_matrix(dual_robot._get_base_pose_world("R"))
 
@@ -188,8 +190,28 @@ class RobotInpaintProcessor(BaseProcessor):
                 Mat_world_T_seqs_R = Mat_world_T_base_R @ Mat_base_R_T_camera @ np.array([pose_to_matrix(p) for p in seqs_R_cam])
                 seqs_L_in_world_6d = np.array([matrix_to_pose(m) for m in Mat_world_T_seqs_L])
                 seqs_R_in_world_6d = np.array([matrix_to_pose(m) for m in Mat_world_T_seqs_R])
+
+                Mat_world_T_camera_L = Mat_world_T_base_L @ Mat_base_L_T_camera
+                Mat_world_T_camera_R = Mat_world_T_base_R @ Mat_base_R_T_camera
                 
-                camera_poses_world = np.tile(matrix_to_pose(Mat_world_T_base_L @ Mat_base_L_T_camera), (len(seqs_L_in_world_6d), 1))
+                # Check consistency: XYZ < 2cm, Rotation < 5 deg
+                pos_diff = np.linalg.norm(Mat_world_T_camera_L[:3, 3] - Mat_world_T_camera_R[:3, 3])
+                
+                R_L = Mat_world_T_camera_L[:3, :3]
+                R_R = Mat_world_T_camera_R[:3, :3]
+                rot_diff_angle = np.linalg.norm(R.from_matrix(R_L.T @ R_R).as_rotvec())
+
+                print(f"[Camera Check] Pos Diff: {pos_diff:.4f}m, Rot Diff: {np.degrees(rot_diff_angle):.2f} deg")
+
+                POS_THRESHOLD = 0.03  # 3cm
+                ROT_THRESHOLD = np.pi * 6.0 / 180.0  # 6 degrees
+
+                if pos_diff > POS_THRESHOLD or rot_diff_angle > ROT_THRESHOLD:
+                    raise AssertionError(f"Camera world transforms from two arms differ significantly! "
+                                         f"Pos Diff: {pos_diff:.4f} > {POS_THRESHOLD}, "
+                                         f"Rot Diff: {np.degrees(rot_diff_angle):.2f} > 6 deg")
+
+                camera_poses_world = np.array([matrix_to_pose(Mat_world_T_camera_L) for _ in range(len(seqs_L_in_world_6d))])
 
                 # 3. 准备夹爪数据 (Width 1D)
                 # -------------------------------------
@@ -277,6 +299,7 @@ class RobotInpaintProcessor(BaseProcessor):
                         
                         sequence.add_frame(TrainingData(
                             frame_idx=idx, valid=True,
+                            
                             action_pos_left=left_state.pos, 
                             action_orixyzw_left=left_state.ori_xyzw,
                             action_pos_right=right_state.pos, 
@@ -958,5 +981,5 @@ class RobotInpaintProcessor(BaseProcessor):
         r = Rotation.from_matrix(camera_ori_matrix)
         camera_ori_wxyz = r.as_quat(scalar_first=True)
         return camera_ori_wxyz
- 
+
 

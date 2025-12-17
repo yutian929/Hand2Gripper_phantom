@@ -125,9 +125,9 @@ def process_all_demos(cfg: DictConfig, processor_classes: dict) -> None:
             'HAND2D', 
             'ARM_SEGMENTATION', 
             "HAND_INPAINT",
-            # "ACTION",
+            "ACTION",
             "SMOOTHING",
-            "ROBOT_INPAINT"
+            # "ROBOT_INPAINT"
             ):
             continue
         else:
@@ -139,7 +139,9 @@ def process_all_demos(cfg: DictConfig, processor_classes: dict) -> None:
             # >>> Hand2Gripper >>> #
             if data_sub_folder in (
                 '', 
-                # '0',
+                '0',
+                '1',
+                '2',
             ):
                 continue
             # <<< Hand2Gripper <<< #

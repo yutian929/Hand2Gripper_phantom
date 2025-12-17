@@ -92,6 +92,7 @@ class Paths:
         self.hand2gripper_cam_intri = self.data_path / "camera_intrinsics.json"
         self.hand2gripper_cam_traj = self.action_processor / "hand2gripper_cam_traj.npy"
         self.hand2gripper_robot_base_traj = self.action_processor / "hand2gripper_robot_base_traj.npy"
+        self.hand2gripper_vslam_camera_link_traj = self.data_path / "camera_link_traj.json"
         # <<< Hand2Gripper <<< #
 
     def _setup_original_images(self):
