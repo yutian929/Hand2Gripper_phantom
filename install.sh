@@ -11,7 +11,7 @@ cd ../..
 
 # Install Hamer
 cd submodules/phantom-hamer
-pip install -e .\[all\]
+pip install -e .\[all\] --no-build-isolation
 pip install -v -e third-party/ViTPose
 wget https://www.cs.utexas.edu/~pavlakos/hamer/data/hamer_demo_data.tar.gz
 tar --warning=no-unknown-keyword --exclude=".*" -xvf hamer_demo_data.tar.gz
@@ -24,7 +24,7 @@ pip install mmcv-full -f https://download.openmmlab.com/mmcv/dist/cu121/torch2.1
 pip install numpy==1.26.4
 
 # Install phantom-robosuite
-cd submodules/phantom-robosuite
+cd submodules/Hand2Gripper_robosuite
 pip install -e .
 cd ../..
 
@@ -40,7 +40,7 @@ gdown --fuzzy https://drive.google.com/file/d/10wGdKSUOie0XmCr8SQ2A2FeDe-mfn5w3/
 cd ../..
 
 # Install phantom-E2FGVI
-pip install -e .
+pip install -e . --no-build-isolation
 cd ../..
 
 # Download sample data
@@ -93,4 +93,5 @@ pip install protobuf==3.20.0
 pip install hydra-core==1.3.2
 pip install omegaconf==2.3.0
 pip install numpy==1.26.4
+sudo apt install ffmpeg
 pip install -e .
