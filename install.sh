@@ -40,7 +40,7 @@ gdown --fuzzy https://drive.google.com/file/d/10wGdKSUOie0XmCr8SQ2A2FeDe-mfn5w3/
 cd ../..
 
 # Install phantom-E2FGVI
-pip install -e . --no-build-isolation
+pip install -e .
 cd ../..
 
 # Download sample data
@@ -58,7 +58,7 @@ cd ../..
 # Install Hand2gripper packages
 # Hand2Gripper_WiLoR-mini
 cd submodules/Hand2Gripper_WiLoR-mini/
-pip install -e .
+pip install -e . --no-build-isolation
 cd ../..
 
 # Hand2Gripper HACO
