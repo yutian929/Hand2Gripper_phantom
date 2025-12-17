@@ -113,33 +113,204 @@ class RobotInpaintProcessor(BaseProcessor):
         if hasattr(self, 'twin_robot'):
             self.twin_robot.close()
 
+
+
     def process_one_demo(self, data_sub_folder: str) -> None:
         """
-        Process a single demonstration to create robot-inpainted visualization.
-        
-        Args:
-            data_sub_folder: Path to demonstration data folder containing
-                           smoothed trajectories and original video data
+        Process a single demonstration.
+        - Visuals: Uses DualArmController with (N,7) input [Pose + Width].
+        - Sequence: Uses Standard Raw Data (DeepSeek Logic) for correct labeling.
         """
         save_folder = self.get_save_folder(data_sub_folder)
         if self._should_skip_processing(save_folder):
             return
         paths = self.get_paths(save_folder)
         
-        # Reinitialize robot simulation for each demo to ensure clean state
         self.__del__()
-        self._initialize_robot()
-        
-        # Load and prepare demonstration data
-        data = self._load_data(paths)
-        images = self._load_images(paths, data["union_indices"])
-        gripper_actions, gripper_widths = self._process_gripper_widths(paths, data)
+        sequence = None
+        img_overlay = []
+        img_birdview = None
 
-        # Process all frames to generate robot overlays and training data
-        sequence, img_overlay, img_birdview = self._process_frames(images, data, gripper_actions, gripper_widths)
-        
-        # Save comprehensive results
-        self._save_results(paths, sequence, img_overlay, img_birdview)
+        if self.robot == "Arx5":
+            try:
+                import numpy as np
+                import cv2
+                import mediapy as media
+                from scipy.spatial.transform import Rotation as R
+                
+                # [关键] 使用你指定的带 ee_width 的控制器
+                from hand2gripper_robot_inpaint.arx_controller.dual_arm_controller_with_ee_width import DualArmController
+                from hand2gripper_robot_inpaint.arx_controller.test_single_arm import load_and_transform_data, pose_to_matrix, matrix_to_pose
+
+                # 1. 初始化仿真
+                xml_path_str = "/home/yutian/Hand2Gripper_phantom/submodules/Hand2Gripper_RobotInpaint/arx_controller/R5/R5a/meshes/dual_arm_scene.xml"
+                if not os.path.exists(xml_path_str):
+                    print(f"Error: XML not found at {xml_path_str}")
+                    return
+                
+                dual_robot = DualArmController(xml_path_str, max_steps=100)
+
+                # 2. 准备渲染用的轨迹数据 (Pose 6D)
+                # -------------------------------------
+                # 定义相机与基座的变换
+                Mat_base_L_T_camera = np.array([[1., 0., 0., 0.], [0., 1., 0., -0.25], [0., 0., 1., 0.2], [0., 0., 0., 1.]])
+                Mat_base_R_T_camera = np.array([[1., 0., 0., 0.], [0., 1., 0., 0.25], [0., 0., 1., 0.2], [0., 0., 0., 1.]])
+                Mat_world_T_base_L = pose_to_matrix(dual_robot._get_base_pose_world("L"))
+                Mat_world_T_base_R = pose_to_matrix(dual_robot._get_base_pose_world("R"))
+
+                # 加载轨迹 (优先使用 _shoulders)
+                path_l = str(paths.smoothed_actions_left)
+                path_r = str(paths.smoothed_actions_right)
+                if not os.path.exists(path_l):
+                    path_l = path_l.replace(".npz", "_shoulders.npz")
+                    path_r = path_r.replace(".npz", "_shoulders.npz")
+
+                # 读取并转换轨迹
+                try:
+                    seqs_L_cam = load_and_transform_data(path_l)
+                    seqs_R_cam = load_and_transform_data(path_r)
+                except:
+                    # Fallback B-Format
+                    data_L = np.load(path_l)
+                    data_R = np.load(path_r)
+                    def convert_b_to_euler(ee_pts, ee_oris):
+                        seqs = []
+                        for i in range(len(ee_pts)):
+                            r = R.from_matrix(ee_oris[i])
+                            euler = r.as_euler('xyz', degrees=False)
+                            seqs.append(np.concatenate([ee_pts[i], euler]))
+                        return np.array(seqs)
+                    seqs_L_cam = convert_b_to_euler(data_L["ee_pts"], data_L["ee_oris"])
+                    seqs_R_cam = convert_b_to_euler(data_R["ee_pts"], data_R["ee_oris"])
+
+                # 计算 World 坐标 (N, 6)
+                Mat_world_T_seqs_L = Mat_world_T_base_L @ Mat_base_L_T_camera @ np.array([pose_to_matrix(p) for p in seqs_L_cam])
+                Mat_world_T_seqs_R = Mat_world_T_base_R @ Mat_base_R_T_camera @ np.array([pose_to_matrix(p) for p in seqs_R_cam])
+                seqs_L_in_world_6d = np.array([matrix_to_pose(m) for m in Mat_world_T_seqs_L])
+                seqs_R_in_world_6d = np.array([matrix_to_pose(m) for m in Mat_world_T_seqs_R])
+                
+                camera_poses_world = np.tile(matrix_to_pose(Mat_world_T_base_L @ Mat_base_L_T_camera), (len(seqs_L_in_world_6d), 1))
+
+                # 3. 准备夹爪数据 (Width 1D)
+                # -------------------------------------
+                # 加载标准数据以获取 gripper widths
+                print("Loading gripper widths...")
+                data_standard = self._load_data(paths)
+                _, gripper_widths = self._process_gripper_widths(paths, data_standard)
+                
+                width_L = gripper_widths['left']
+                width_R = gripper_widths['right']
+
+                # 4. 数据合并与对齐 (6D + 1D -> 7D)
+                # -------------------------------------
+                rgbs_inpaint = media.read_video(str(paths.video_human_inpaint))
+                min_frames = min(len(seqs_L_in_world_6d), len(seqs_R_in_world_6d), len(rgbs_inpaint), len(width_L))
+                
+                print(f"Executing Arx5 dual arm trajectory ({min_frames} frames)...")
+
+                # 截取数据
+                seq_L_6d = seqs_L_in_world_6d[:min_frames]
+                seq_R_6d = seqs_R_in_world_6d[:min_frames]
+                w_L = width_L[:min_frames].reshape(-1, 1)
+                w_R = width_R[:min_frames].reshape(-1, 1)
+                
+                # [关键步骤] 拼接成 (N, 7)
+                seqs_L_in_world_7d = np.hstack([seq_L_6d, w_L])
+                seqs_R_in_world_7d = np.hstack([seq_R_6d, w_R])
+                cam_poses = camera_poses_world[:min_frames]
+
+                # 5. 执行仿真
+                # -------------------------------------
+                sim_frames, sim_masks = dual_robot.move_trajectory_with_camera(
+                    seqs_L_in_world_7d, 
+                    seqs_R_in_world_7d, 
+                    cam_poses, 
+                    50, kinematic_only=True, cam_name="camera", width=640, height=480
+                )
+
+                if len(sim_frames) == 0: return
+
+                # 6. 生成 Sequence (使用原始标准数据 - DeepSeek Logic)
+                # -------------------------------------
+                # 这一步使用 data_standard，它是原始的、未经 world 变换的数据，用于训练标签
+                gripper_actions, _ = self._process_gripper_widths(paths, data_standard)
+                
+                sequence = TrainingDataSequence()
+
+                for idx in range(min_frames):
+                    # --- A. 视频合成 ---
+                    rgb_h = rgbs_inpaint[idx]
+                    rgb_s = sim_frames[idx]
+                    mask_s = sim_masks[idx]
+
+                    if rgb_s.shape[:2] != rgb_h.shape[:2]:
+                        rgb_s = cv2.resize(rgb_s, (rgb_h.shape[1], rgb_h.shape[0]))
+                        mask_s = cv2.resize(mask_s, (rgb_h.shape[1], rgb_h.shape[0]), interpolation=cv2.INTER_NEAREST)
+
+                    blended = rgb_h.copy()
+                    blended[mask_s[:, :, 0] > 0] = rgb_s[mask_s[:, :, 0] > 0]
+                    
+                    if self.square and self.output_resolution > 0:
+                        h, w = blended.shape[:2]
+                        if h > w:
+                            start = (h - w) // 2
+                            blended = blended[start:start+w, :]
+                        else:
+                            start = (w - h) // 2
+                            blended = blended[:, start:start+h]
+                        if blended.shape[0] != self.output_resolution:
+                            blended = cv2.resize(blended, (self.output_resolution, self.output_resolution))
+                    img_overlay.append(blended)
+
+                    # --- B. Sequence 填充 (Label) ---
+                    try:
+                        left_state = self._get_robot_state(
+                            data_standard['ee_pts_left'][idx], 
+                            data_standard['ee_oris_left'][idx], 
+                            gripper_widths['left'][idx]
+                        )
+                        right_state = self._get_robot_state(
+                            data_standard['ee_pts_right'][idx], 
+                            data_standard['ee_oris_right'][idx], 
+                            gripper_widths['right'][idx]
+                        )
+                        
+                        sequence.add_frame(TrainingData(
+                            frame_idx=idx, valid=True,
+                            action_pos_left=left_state.pos, 
+                            action_orixyzw_left=left_state.ori_xyzw,
+                            action_pos_right=right_state.pos, 
+                            action_orixyzw_right=right_state.ori_xyzw,
+                            action_gripper_left=gripper_actions['left'][idx], 
+                            action_gripper_right=gripper_actions['right'][idx],
+                            gripper_width_left=gripper_widths['left'][idx], 
+                            gripper_width_right=gripper_widths['right'][idx],
+                        ))
+                    except:
+                        sequence.add_frame(TrainingData.create_empty_frame(idx))
+
+            except Exception as e:
+                print(f"Error during Arx5 processing: {e}")
+                import traceback
+                traceback.print_exc()
+                return
+
+        else:
+            # 标准机器人逻辑
+            self._initialize_robot()
+            data = self._load_data(paths)
+            images = self._load_images(paths, data["union_indices"])
+            gripper_actions, gripper_widths = self._process_gripper_widths(paths, data)
+            sequence, img_overlay, img_birdview = self._process_frames(images, data, gripper_actions, gripper_widths)
+
+        # 保存结果
+        if sequence is not None and len(img_overlay) > 0:
+            print(f"Saving {len(img_overlay)} frames...")
+            self._save_results(paths, sequence, img_overlay, img_birdview)
+        else:
+            print("Warning: No data generated to save.")
+
+
 
     def _process_frames(self, images: Dict[str, np.ndarray], data: Dict[str, np.ndarray],
                        gripper_actions: Dict[str, np.ndarray], gripper_widths: Dict[str, np.ndarray]) -> Tuple[TrainingDataSequence, List[np.ndarray], Optional[List[np.ndarray]]]:

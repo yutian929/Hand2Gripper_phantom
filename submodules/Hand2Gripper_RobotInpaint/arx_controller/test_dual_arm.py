@@ -4,8 +4,8 @@ import os
 import mujoco
 import mediapy as media
 from scipy.spatial.transform import Rotation as R
-from dual_arm_controller import DualArmController
-from test_single_arm import load_and_transform_data, visualize_trajectory, pose_to_matrix, matrix_to_pose
+from hand2gripper_robot_inpaint.arx_controller.dual_arm_controller import DualArmController
+from hand2gripper_robot_inpaint.arx_controller.test_single_arm import load_and_transform_data, visualize_trajectory, pose_to_matrix, matrix_to_pose
 
 # ---------------------------------------------------------
 # Main Execution
