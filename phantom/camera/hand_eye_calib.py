@@ -210,7 +210,7 @@ def get_T_link_optical():
 # =========================
 # 7) 主程序：D435采图 + ArUco检测 + Free-drag + 采集/解算
 # =========================
-def main():
+def main(file_name="eye_to_hand_result_right.npz"):
     print("Connecting arm...")
     arm = SingleArm(ARM_CONFIG)
 
@@ -354,7 +354,7 @@ def main():
                 print("\n=== T_base_link (camera_link -> base) ===\n", T_base_link)
 
                 print("\nOptimizer:", sol.success, sol.message)
-                file_name = "eye_to_hand_result_right_20251217" + ".npz"
+
                 np.savez(
                     file_name,
                     T_base_cam=X,            # Optical Frame
@@ -375,19 +375,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # main()
-    filename = "eye_to_hand_result_left_20251217.npz"
-    data = np.load(filename)
-    print("Original T_base_cam=\n", data["T_base_cam"])
-
-    # 计算 T_base_link
-    T_link_optical = get_T_link_optical()
-    T_base_link = data["T_base_cam"] @ np.linalg.inv(T_link_optical)
-    print("Calculated T_base_link=\n", T_base_link)
-
-    # 重新保存包含 T_base_link 的数据
-    save_dict = {k: data[k] for k in data.files}
-    save_dict["T_base_link"] = T_base_link
-    
-    np.savez(filename, **save_dict)
-    print(f"Successfully updated {filename} with T_base_link.")
+    main(file_name="eye_to_hand_result_right_20251218.npz")
