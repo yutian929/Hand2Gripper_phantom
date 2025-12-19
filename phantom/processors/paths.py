@@ -93,6 +93,11 @@ class Paths:
         self.hand2gripper_cam_traj = self.action_processor / "hand2gripper_cam_traj.npy"
         self.hand2gripper_robot_base_traj = self.action_processor / "hand2gripper_robot_base_traj.npy"
         self.hand2gripper_vslam_camera_link_traj = self.data_path / "camera_link_traj.json"
+        # train
+        self.hand2gripper_train_base_L_T_ee_L = self.inpaint_processor / "hand2gripper_train_base_L_T_ee_L.npy"
+        self.hand2gripper_train_base_R_T_ee_R = self.inpaint_processor / "hand2gripper_train_base_R_T_ee_R.npy"
+        self.hand2gripper_train_gripper_width_left = self.inpaint_processor / "hand2gripper_train_gripper_width_left.npy"
+        self.hand2gripper_train_gripper_width_right = self.inpaint_processor / "hand2gripper_train_gripper_width_right.npy"
         # <<< Hand2Gripper <<< #
 
     def _setup_original_images(self):

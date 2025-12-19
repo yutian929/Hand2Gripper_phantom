@@ -36,5 +36,5 @@ render: false
 camera_intrinsics: "camera/camera_intrinsics_d435.json"
 camera_extrinsics: "camera/camera_extrinsics_ego_bimanual_shoulders_ur5e.json"
 # camera_extrinsics: "camera/camera_extrinsics_ego_bimanual_shoulders_arx5.json"
-eye_to_hand_left: "camera/eye_to_hand_result_left_20251217.npz"
-eye_to_hand_right: "camera/eye_to_hand_result_right_20251217.npz"
+eye_to_hand_left: "camera/eye_to_hand_result_left_20251218.npz"
+eye_to_hand_right: "camera/eye_to_hand_result_right_20251218.npz"

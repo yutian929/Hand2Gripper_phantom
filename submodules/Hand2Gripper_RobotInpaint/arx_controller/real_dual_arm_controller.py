@@ -63,28 +63,36 @@ class RealDualArmController:
         print(f"[RealDualArm] Starting execution of {steps} steps...")
         left_poses = [self._base_T_ee_to_flange_init_T_flange(mat) for mat in left_ee_poses_base]
         right_poses = [self._base_T_ee_to_flange_init_T_flange(mat) for mat in right_ee_poses_base]
-        print(f"[base]: {left_ee_poses_base[0]}\n[flange]: {left_poses[0]}")
-        print(f"[base]: {right_ee_poses_base[0]}\n[flange]: {right_poses[0]}")
+        # print(f"[base]: {left_ee_poses_base[0]}\n[flange]: {left_poses[0]}")
+        # print(f"[base]: {right_ee_poses_base[0]}\n[flange]: {right_poses[0]}")
         
         for i in range(steps):
             loop_start = time.time()
             
             # --- 左臂控制 ---
             l_mat = left_poses[i]
-            l_width = left_widths[i]
-            l_xyzrpy = self._matrix_to_xyzrpy(l_mat)
-            
-            # 调用底层接口
-            self.left_arm.set_ee_pose_xyzrpy(l_xyzrpy)
-            self.left_arm.set_catch_pos(l_width)
+            if not np.any(np.isnan(l_mat)):
+                try:
+                    l_width = left_widths[i]
+                    l_xyzrpy = self._matrix_to_xyzrpy(l_mat)
+                    
+                    # 调用底层接口
+                    self.left_arm.set_ee_pose_xyzrpy(l_xyzrpy)
+                    self.left_arm.set_catch_pos(l_width)
+                except Exception as e:
+                    print(f"[Left Arm Error] Step {i}: {e}")
 
             # --- 右臂控制 ---
             r_mat = right_poses[i]
-            r_width = right_widths[i]
-            r_xyzrpy = self._matrix_to_xyzrpy(r_mat)
-            
-            self.right_arm.set_ee_pose_xyzrpy(r_xyzrpy)
-            self.right_arm.set_catch_pos(r_width)
+            if not np.any(np.isnan(r_mat)):
+                try:
+                    r_width = right_widths[i]
+                    r_xyzrpy = self._matrix_to_xyzrpy(r_mat)
+                    
+                    self.right_arm.set_ee_pose_xyzrpy(r_xyzrpy)
+                    self.right_arm.set_catch_pos(r_width)
+                except Exception as e:
+                    print(f"[Right Arm Error] Step {i}: {e}")
 
             # --- 频率控制 ---
             elapsed = time.time() - loop_start

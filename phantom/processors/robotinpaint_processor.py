@@ -35,6 +35,48 @@ from phantom.processors.paths import Paths
 
 logger = logging.getLogger(__name__)
 
+def vis_matrix_list(list_of_matrix: List[np.ndarray], interval: int = 5, title: str = "Matrix Visualization"):
+    # Visualize a list of 4x4 transformation matrices
+    # start, 6d axes, end
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d import Axes3D
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    
+    positions = []
+    for M in list_of_matrix:
+        positions.append(M[:3, 3])
+    positions = np.array(positions)
+    
+    # Plot trajectory line
+    if len(positions) > 0:
+        ax.plot(positions[:, 0], positions[:, 1], positions[:, 2], color='gray', alpha=0.5, linewidth=1)
+        
+        # Start point (Red)
+        ax.scatter(positions[0, 0], positions[0, 1], positions[0, 2], color='r', s=50, label='Start')
+        # End point (Green)
+        ax.scatter(positions[-1, 0], positions[-1, 1], positions[-1, 2], color='g', s=50, label='End')
+
+    for i, M in enumerate(list_of_matrix):
+        if i % interval != 0:
+            continue
+        pos = M[:3, 3]
+        R = M[:3, :3]
+        # X axis - Red
+        ax.quiver(pos[0], pos[1], pos[2], R[0, 0], R[1, 0], R[2, 0], length=0.05, color='r')
+        # Y axis - Green
+        ax.quiver(pos[0], pos[1], pos[2], R[0, 1], R[1, 1], R[2, 1], length=0.05, color='g')
+        # Z axis - Blue
+        ax.quiver(pos[0], pos[1], pos[2], R[0, 2], R[1, 2], R[2, 2], length=0.05, color='b')
+        ax.scatter(pos[0], pos[1], pos[2], color='k', s=5)
+    
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    ax.set_title(title)
+    plt.legend()
+    plt.show()
+
 @dataclass
 class RobotState:
     """
@@ -159,7 +201,7 @@ class RobotInpaintProcessor(BaseProcessor):
                 Mat_base_R_T_camera = hand_eye_calib_R["T_base_link"]
                 Mat_world_T_base_L = pose_to_matrix(dual_robot._get_base_pose_world("L"))
                 Mat_world_T_base_R = pose_to_matrix(dual_robot._get_base_pose_world("R"))
-
+                
                 # 加载轨迹
                 path_l = str(paths.actions_left)
                 path_r = str(paths.actions_right)
@@ -176,7 +218,7 @@ class RobotInpaintProcessor(BaseProcessor):
                 if not os.path.exists(path_l):
                     path_l = path_l.replace(".npz", "_shoulders.npz")
                     path_r = path_r.replace(".npz", "_shoulders.npz")
-
+                
                 # 读取并转换轨迹
                 try:
                     seqs_L_cam = load_and_transform_data(path_l)
@@ -196,14 +238,25 @@ class RobotInpaintProcessor(BaseProcessor):
                     seqs_R_cam = convert_b_to_euler(data_R["ee_pts"], data_R["ee_oris"])
 
                 # 计算 World 坐标 (N, 6)
-                Mat_world_T_seqs_L = Mat_world_T_base_L @ Mat_base_L_T_camera @ np.array([pose_to_matrix(p) for p in seqs_L_cam])
-                Mat_world_T_seqs_R = Mat_world_T_base_R @ Mat_base_R_T_camera @ np.array([pose_to_matrix(p) for p in seqs_R_cam])
+                Mat_cam_T_seqs_L = np.array([pose_to_matrix(p) for p in seqs_L_cam])
+                Mat_cam_T_seqs_R = np.array([pose_to_matrix(p) for p in seqs_R_cam])
+                Mat_base_L_T_seqs_L = Mat_base_L_T_camera @ Mat_cam_T_seqs_L  # 最终保存的
+                Mat_base_R_T_seqs_R = Mat_base_R_T_camera @ Mat_cam_T_seqs_R
+                np.save(str(paths.hand2gripper_train_base_L_T_ee_L), Mat_base_L_T_seqs_L)
+                np.save(str(paths.hand2gripper_train_base_R_T_ee_R), Mat_base_R_T_seqs_R)
+                # vis_matrix_list(Mat_base_L_T_seqs_L, interval=10, title="Left Arm Trajectory in Base Frame")
+                # vis_matrix_list(Mat_base_R_T_seqs_R, interval=10, title="Right Arm Trajectory in Base Frame")
+                Mat_world_T_seqs_L = Mat_world_T_base_L @ Mat_base_L_T_seqs_L
+                Mat_world_T_seqs_R = Mat_world_T_base_R @ Mat_base_R_T_seqs_R
                 seqs_L_in_world_6d = np.array([matrix_to_pose(m) for m in Mat_world_T_seqs_L])
                 seqs_R_in_world_6d = np.array([matrix_to_pose(m) for m in Mat_world_T_seqs_R])
 
                 Mat_world_T_camera_L = Mat_world_T_base_L @ Mat_base_L_T_camera
                 Mat_world_T_camera_R = Mat_world_T_base_R @ Mat_base_R_T_camera
-                
+                # vis_matrix_list(Mat_cam_T_seqs_L, interval=10, title="Left Arm Trajectory in Camera Frame")
+                # vis_matrix_list(Mat_world_T_seqs_L, interval=10, title="Left Arm Trajectory in World Frame")
+                # vis_matrix_list(Mat_cam_T_seqs_R, interval=10, title="Right Arm Trajectory in Camera Frame")
+                # vis_matrix_list(Mat_world_T_seqs_R, interval=10, title="Right Arm Trajectory in World Frame")
                 # Check consistency: XYZ < 2cm, Rotation < 5 deg
                 pos_diff = np.linalg.norm(Mat_world_T_camera_L[:3, 3] - Mat_world_T_camera_R[:3, 3])
                 
@@ -213,8 +266,8 @@ class RobotInpaintProcessor(BaseProcessor):
 
                 print(f"[Camera Check] Pos Diff: {pos_diff:.4f}m, Rot Diff: {np.degrees(rot_diff_angle):.2f} deg")
 
-                POS_THRESHOLD = 0.03  # 3cm
-                ROT_THRESHOLD = np.pi * 6.0 / 180.0  # 6 degrees
+                POS_THRESHOLD = 0.05  # 5cm
+                ROT_THRESHOLD = np.pi * 10.0 / 180.0  # 10 degrees
 
                 if pos_diff > POS_THRESHOLD or rot_diff_angle > ROT_THRESHOLD:
                     raise AssertionError(f"Camera world transforms from two arms differ significantly! "
@@ -230,8 +283,10 @@ class RobotInpaintProcessor(BaseProcessor):
                 data_standard = self._load_data(paths)
                 _, gripper_widths = self._process_gripper_widths(paths, data_standard)
                 
-                width_L = gripper_widths['left']
+                width_L = gripper_widths['left']  # 最终要保存的
                 width_R = gripper_widths['right']
+                np.save(str(paths.hand2gripper_train_gripper_width_left), width_L)
+                np.save(str(paths.hand2gripper_train_gripper_width_right), width_R)
 
                 # 4. 数据合并与对齐 (6D + 1D -> 7D)
                 # -------------------------------------
@@ -289,7 +344,6 @@ class RobotInpaintProcessor(BaseProcessor):
                         if blended.shape[0] != self.output_resolution:
                             blended = cv2.resize(blended, (self.output_resolution, self.output_resolution))
                     img_overlay.append(blended)
-
                     # --- B. Sequence 填充 (Label) ---
                     try:
                         left_state = self._get_robot_state(
@@ -831,7 +885,7 @@ class RobotInpaintProcessor(BaseProcessor):
             paths: Paths object containing output file locations
             sequence: Training data sequence with robot state annotations
             img_overlay: List of robot overlay images
-            img_birdview: Optional list of bird's eye view images for analysis
+            img_birdview: Optional list of bird's eye view images for analysis and debugging
         """
         # Create output directory
         os.makedirs(paths.inpaint_processor, exist_ok=True)

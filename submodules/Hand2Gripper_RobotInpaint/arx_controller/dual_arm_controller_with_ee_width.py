@@ -517,7 +517,7 @@ class DualArmController:
                 
                 # --- D. 渲染 ---
                 viewer.sync()
-                
+                time.sleep(0.1)
                 time_until_next = self.model.opt.timestep - (time.time() - step_start)
                 if time_until_next > 0:
                     time.sleep(time_until_next)
