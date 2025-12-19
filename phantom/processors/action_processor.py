@@ -155,11 +155,11 @@ class ActionProcessor(BaseProcessor):
         right_actions = self._process_hand_sequence_hand2gripper(right_sequence, self.T_cam2robot, imgs_rgb, bbox_data['right_bboxes'], "right")
         # Combine detection results using OR logic - frame is valid if either hand detected
         union_indices = np.where(left_sequence.hand_detected | right_sequence.hand_detected)[0]
-
+        
         # Refine actions for both hands using the union indices
         left_actions_refined = self._refine_actions(left_sequence, left_actions, union_indices, "left")
         right_actions_refined = self._refine_actions(right_sequence, right_actions, union_indices, "right")
-
+        
         # Save results for both hands
         self._save_results(paths, union_indices, left_actions_refined, right_actions_refined)
 
@@ -548,10 +548,16 @@ class ActionProcessor(BaseProcessor):
                 "right": {"pos": [0.2, -0.8, 0.3], "quat": [1, 0.0, 0.0, 0.0]},
                 "left": {"pos": [0.2, 0.8, 0.3], "quat": [1, 0.0, 0.0, 0.0]}
             },
+            # >>> Hand2Gripper >>>
+            # "shoulders": {
+            #     "right": {"pos": [0.4, -0.5, 0.3], "quat": [-0.7071, 0.0, 0.0, 0.7071]},
+            #     "left": {"pos": [0.4, 0.5, 0.3], "quat": [0.7071, 0.0, 0.0, 0.7071]}
+            # }
             "shoulders": {
-                "right": {"pos": [0.4, -0.5, 0.3], "quat": [-0.7071, 0.0, 0.0, 0.7071]},
-                "left": {"pos": [0.4, 0.5, 0.3], "quat": [0.7071, 0.0, 0.0, 0.7071]}
+                "right": {"pos": [None, None, None], "quat": [1, 0.0, 0.0, 0.0]},
+                "left": {"pos": [None, None, None], "quat": [1, 0.0, 0.0, 0.0]}
             }
+            # <<< Hand2Gripper <<<
         }
         
         # Get configuration for current setup and hand

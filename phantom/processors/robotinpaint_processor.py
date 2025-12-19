@@ -160,7 +160,17 @@ class RobotInpaintProcessor(BaseProcessor):
                 Mat_world_T_base_L = pose_to_matrix(dual_robot._get_base_pose_world("L"))
                 Mat_world_T_base_R = pose_to_matrix(dual_robot._get_base_pose_world("R"))
 
-                # 加载轨迹 (优先使用 _shoulders)
+                # 加载轨迹
+                path_l = str(paths.actions_left)
+                path_r = str(paths.actions_right)
+                if not os.path.exists(path_l):
+                    path_l = path_l.replace(".npz", "_shoulders.npz")
+                    path_r = path_r.replace(".npz", "_shoulders.npz")
+                frame_indices_l = np.load(path_l)["union_indices"]
+                frame_indices_r = np.load(path_r)["union_indices"]
+                assert np.array_equal(frame_indices_l, frame_indices_r), "Frame indices for left and right arms do not match!"
+                frame_indices = frame_indices_l
+
                 path_l = str(paths.smoothed_actions_left)
                 path_r = str(paths.smoothed_actions_right)
                 if not os.path.exists(path_l):
@@ -226,20 +236,16 @@ class RobotInpaintProcessor(BaseProcessor):
                 # 4. 数据合并与对齐 (6D + 1D -> 7D)
                 # -------------------------------------
                 rgbs_inpaint = media.read_video(str(paths.video_human_inpaint))
-                min_frames = min(len(seqs_L_in_world_6d), len(seqs_R_in_world_6d), len(rgbs_inpaint), len(width_L))
-                
-                print(f"Executing Arx5 dual arm trajectory ({min_frames} frames)...")
-
-                # 截取数据
-                seq_L_6d = seqs_L_in_world_6d[:min_frames]
-                seq_R_6d = seqs_R_in_world_6d[:min_frames]
-                w_L = width_L[:min_frames].reshape(-1, 1)
-                w_R = width_R[:min_frames].reshape(-1, 1)
-                
+                rgbs_inpaint = rgbs_inpaint[frame_indices]
+                assert len(frame_indices) == len(rgbs_inpaint) == len(width_L) == len(seqs_L_in_world_6d), \
+                    f"Data length mismatch! Video: {len(rgbs_inpaint)}, Width L: {len(width_L)}, Seq L: {len(seqs_L_in_world_6d)}"
+                assert len(frame_indices) == len(rgbs_inpaint) == len(width_R) == len(seqs_R_in_world_6d), \
+                    f"Data length mismatch! Video: {len(rgbs_inpaint)}, Width R: {len(width_R)}, Seq R: {len(seqs_R_in_world_6d)}"
+                                
                 # [关键步骤] 拼接成 (N, 7)
-                seqs_L_in_world_7d = np.hstack([seq_L_6d, w_L])
-                seqs_R_in_world_7d = np.hstack([seq_R_6d, w_R])
-                cam_poses = camera_poses_world[:min_frames]
+                seqs_L_in_world_7d = np.hstack([seqs_L_in_world_6d, width_L.reshape(-1, 1)])
+                seqs_R_in_world_7d = np.hstack([seqs_R_in_world_6d, width_R.reshape(-1, 1)])
+                cam_poses = camera_poses_world
 
                 # 5. 执行仿真
                 # -------------------------------------
@@ -252,14 +258,14 @@ class RobotInpaintProcessor(BaseProcessor):
 
                 if len(sim_frames) == 0: return
 
-                # 6. 生成 Sequence (使用原始标准数据 - DeepSeek Logic)
+                # 6. 生成 Sequence (使用原始标准数据)
                 # -------------------------------------
                 # 这一步使用 data_standard，它是原始的、未经 world 变换的数据，用于训练标签
                 gripper_actions, _ = self._process_gripper_widths(paths, data_standard)
                 
                 sequence = TrainingDataSequence()
 
-                for idx in range(min_frames):
+                for idx in range(len(rgbs_inpaint)):
                     # --- A. 视频合成 ---
                     rgb_h = rgbs_inpaint[idx]
                     rgb_s = sim_frames[idx]

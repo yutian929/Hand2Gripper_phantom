@@ -18,7 +18,7 @@ class RGBDPlayerAndMapper(Node):
         # --- 参数声明 ---
         self.declare_parameter('data_dir', '')
         self.declare_parameter('frequency', 30.0)
-        self.declare_parameter('output_json', 'traj.json') 
+        self.declare_parameter('output_json', 'camera_link_traj.json') 
 
         # --- 获取参数 ---
         data_dir = self.get_parameter('data_dir').get_parameter_value().string_value
@@ -177,6 +177,7 @@ class RGBDPlayerAndMapper(Node):
                 json.dump(self.trajectory_record, f, indent=4)
             self.get_logger().info(f"轨迹已成功保存至: {self.output_path}")
             self.get_logger().info(f"共记录 {len(self.trajectory_record)} 帧数据")
+            self.get_logger().info(f">>> VSLAM PLAYBACK COMPLETE <<<")
         except Exception as e:
             self.get_logger().error(f"保存 JSON 失败: {e}")
 

@@ -1,3 +1,44 @@
+def test_real_dual_arm_controller():
+    from hand2gripper_robot_inpaint.arx_controller.real_dual_arm_controller import RealDualArmController
+    import numpy as np
+    from scipy.spatial.transform import Rotation as R
+
+    data_path = "/home/yutian/Hand2Gripper_phantom/data/processed/epic/4/inpaint_processor/training_data_shoulders.npz"
+    data = np.load(data_path)
+    # valid = data["valid"]
+    # left
+    # action_gripper_left = data["action_gripper_left"]
+    action_pos_left = data["action_pos_left"]
+    action_orixyzw_left = data["action_orixyzw_left"]
+    gripper_width_left = data["gripper_width_left"]
+    # right
+    # action_gripper_right = data["action_gripper_right"]
+    action_pos_right = data["action_pos_right"]
+    action_orixyzw_right = data["action_orixyzw_right"]
+    gripper_width_right = data["gripper_width_right"]
+    
+    # Convert position and quaternion to 4x4 transformation matrices
+    def _to_pose_mat(pos, quat):
+        mat = np.eye(4)
+        mat[:3, 3] = pos
+        mat[:3, :3] = R.from_quat(quat).as_matrix()
+        return mat
+    
+    left_poses = [_to_pose_mat(p, q) for p, q in zip(action_pos_left, action_orixyzw_left)]
+    right_poses = [_to_pose_mat(p, q) for p, q in zip(action_pos_right, action_orixyzw_right)]
+
+    # Initialize controller
+    # Note: Adjust 'can0'/'can1' to match your actual hardware ports
+    controller = RealDualArmController(left_can='can1', right_can='can3')
+
+    # Execute trajectory
+    # dt=0.04 corresponds to roughly 25Hz
+    controller.execute_trajectory(left_poses, right_poses, gripper_width_left, gripper_width_right, dt=0.04)
+    
+
+
+
+
 def test_hand2gripper_robot_inpaint_arx_controller():
     import numpy as np
     import cv2
@@ -601,4 +642,5 @@ def test_wilor_hand_pose3d_estimation_pipeline_hand_detection():
 
 if __name__ == "__main__":
     # test_robo_suite()
-    test_hand2gripper_robot_inpaint_arx_controller()
+    # test_hand2gripper_robot_inpaint_arx_controller()
+    test_real_dual_arm_controller()

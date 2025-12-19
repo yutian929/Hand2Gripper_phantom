@@ -38,7 +38,7 @@ def main():
     ap.add_argument("--fps", type=int, default=30, choices=[15, 30, 60], help="Stream FPS")
     ap.add_argument("--width", type=int, default=640, help="Color width")
     ap.add_argument("--height", type=int, default=480, help="Color height")
-    ap.add_argument("--duration", type=float, default=5.0, help="Record duration in seconds")
+    ap.add_argument("--time", type=float, default=5.0, help="Record time in seconds")
     ap.add_argument("--warmup", type=int, default=15, help="Warmup frames to stabilize exposure")
     ap.add_argument("--show", action="store_true", help="Show the realtime video")
     args = ap.parse_args()
@@ -81,9 +81,9 @@ def main():
     # ---------------- Record loop ----------------
     depth_frames = []  # list of (H, W) float32 meters
     t0 = time.time()
-    target_frames = int(args.duration * args.fps)
+    target_frames = int(args.time * args.fps)
 
-    print(f"Recording for ~{args.duration:.1f}s at {args.fps} FPS ...")
+    print(f"Recording for ~{args.time:.1f}s at {args.fps} FPS ...")
     n = 0
     try:
         while True:
@@ -115,7 +115,7 @@ def main():
 
             n += 1
             # 基于帧数或时间终止
-            if n >= target_frames or (time.time() - t0) >= args.duration:
+            if n >= target_frames or (time.time() - t0) >= args.time:
                 break
 
     finally:

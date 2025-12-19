@@ -66,7 +66,7 @@ def generate_launch_description():
                 'data_dir': data_dir,
                 'frequency': 30.0,
                 # [注意] 这里移除了 loop 参数，因为目的是离线评估，跑完一次就保存退出
-                'output_json': 'traj.json' # 结果会保存在 data_dir 下
+                'output_json': 'camera_link_traj.json' # 结果会保存在 data_dir 下
             }],
             # Remappings 保持不变
             remappings=[

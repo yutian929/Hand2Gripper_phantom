@@ -41,12 +41,12 @@ def load_and_transform_data(filepath):
     ee_oris_transformed = np.matmul(R_transform, ee_oris)
 
     # Additional 180 degree rotation around Z axis
-    R_z180 = np.array([
-        [-1, 0, 0],
-        [0, -1, 0],
-        [0, 0, 1]
-    ])
-    ee_oris_transformed = np.matmul(ee_oris_transformed, R_z180)
+    # R_z180 = np.array([
+    #     [-1, 0, 0],
+    #     [0, -1, 0],
+    #     [0, 0, 1]
+    # ])
+    # ee_oris_transformed = np.matmul(ee_oris_transformed, R_z180)
 
     # 3. Convert Rotation Matrices to Euler Angles (xyz)
     # We need (N, 6) for the controller: [x, y, z, rx, ry, rz]
