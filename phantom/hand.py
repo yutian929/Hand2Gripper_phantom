@@ -392,7 +392,7 @@ class HandModel:
         self.timestamps.append(timestamp)
     
     # >>> Hand2Gripper >>>
-    def add_frame_hand2gripper(self, vertices: np.ndarray, timestamp: float, hand_detected: bool, img_rgb: np.array, bbox: np.array, contact_logits: np.array, hand_side: str, kpts_3d_cf) -> None:
+    def add_frame_hand2gripper(self, vertices: np.ndarray, timestamp: float, hand_detected: bool, img_rgb: np.array, bbox: np.array, contact_logits: np.array, hand_side: str, kpts_3d_cf: np.ndarray, version: str = 'v1') -> None:
         """
         Add a new frame of vertex positions and calculate corresponding data.
         
@@ -450,11 +450,18 @@ class HandModel:
         else:
             thumb_tip = left_pt if hand_side == "right" else right_pt
             index_tip = right_pt if hand_side == "right" else left_pt
+            ### >>> orgin
             # gripper_ori, _ = HandModel.get_gripper_orientation(thumb_tip=thumb_tip, index_tip=index_tip, vertices=vertices, grasp_plane=None)
-            gripper_ori, _ = HandModel.get_gripper_orientation(thumb_tip=vertices[4], index_tip=vertices[8], vertices=vertices, grasp_plane=None)
-            # Apply 90-degree rotation to align with robot gripper convention
-            rot_90_deg = Rotation.from_euler('Z', 90, degrees=True).as_matrix()
-            ee_ori = gripper_ori @ rot_90_deg
+            ### >>> hand2gripper v2
+            if version == 'v2':
+                ee_ori = HandModel.get_gripper_orientation_3pts(base_pt, left_pt, right_pt)
+            ### >>> hand2gripper v1
+            else:
+                gripper_ori, _ = HandModel.get_gripper_orientation(thumb_tip=vertices[4], index_tip=vertices[8], vertices=vertices, grasp_plane=None)
+                # Apply 90-degree rotation to align with robot gripper convention
+                rot_90_deg = Rotation.from_euler('Z', 90, degrees=True).as_matrix()
+                ee_ori = gripper_ori @ rot_90_deg
+                
     
         # Store all frame data
         self.ee_pts.append(ee_pt)
@@ -505,6 +512,67 @@ class HandModel:
         d_new = d - dist * normal_magnitude
         
         return (a, b, c, d_new)
+    
+    @staticmethod
+    def get_gripper_orientation_3pts(
+        base_pt: np.ndarray,
+        left_pt: np.ndarray,
+        right_pt: np.ndarray
+    ) -> np.ndarray:
+        """
+        Build a right-handed gripper frame from 3 points.
+
+        Frame convention (columns of R are axis unit vectors):
+          - x: from base -> midpoint(left, right)   (approach / forward)
+          - y: from right -> left                   (gripper opening direction, +y to "left finger")
+          - z: x cross y                            (right-handed)
+
+        Returns:
+            R: (3, 3) rotation matrix, where R[:,0]=x, R[:,1]=y, R[:,2]=z
+        """
+        base = np.asarray(base_pt, dtype=float).reshape(3)
+        left = np.asarray(left_pt, dtype=float).reshape(3)
+        right = np.asarray(right_pt, dtype=float).reshape(3)
+
+        eps = 1e-9
+
+        def safe_normalize(v: np.ndarray) -> np.ndarray:
+            n = np.linalg.norm(v)
+            if n < eps:
+                raise ValueError("Degenerate input: cannot normalize near-zero vector.")
+            return v / n
+
+        mid = 0.5 * (left + right)
+
+        # x: base -> mid
+        x_raw = mid - base
+        x = safe_normalize(x_raw)
+
+        # y: right -> left  (so +y points to the left finger)
+        y_raw = left - right
+        y = safe_normalize(y_raw)
+
+        # z from cross; handle near-collinear case
+        z_raw = np.cross(x, y)
+        if np.linalg.norm(z_raw) < 1e-6:
+            # Points nearly collinear: choose a fallback "up" to construct z
+            up = np.array([0.0, 0.0, 1.0])
+            if abs(np.dot(x, up)) > 0.95:
+                up = np.array([0.0, 1.0, 0.0])
+            z_raw = np.cross(x, up)
+
+        z = safe_normalize(z_raw)
+
+        # Re-orthogonalize y to ensure perfect orthonormal basis
+        y = safe_normalize(np.cross(z, x))
+
+        # Ensure y points roughly towards (left - right). If flipped, flip y and z.
+        if np.dot(y, (left - right)) < 0:
+            y = -y
+            z = -z
+
+        R = np.stack([x, y, z], axis=1)  # columns are axes
+        return R
 
     @staticmethod
     def get_gripper_orientation(thumb_tip: np.ndarray, index_tip: np.ndarray, vertices: np.ndarray, grasp_plane: Optional[np.ndarray] = None) -> Tuple[np.ndarray, np.ndarray]:
