@@ -2,11 +2,11 @@ def test_real_dual_arm_controller():
     from hand2gripper_robot_inpaint.arx_controller.real_dual_arm_controller import RealDualArmController
     import numpy as np
     from scipy.spatial.transform import Rotation as R
-
-    Mat_base_L_T_ee_L = np.load("/home/yutian/Hand2Gripper_phantom/data/processed/epic/4/inpaint_processor/hand2gripper_train_base_L_T_ee_L.npy")
-    Mat_base_R_T_ee_R = np.load("/home/yutian/Hand2Gripper_phantom/data/processed/epic/4/inpaint_processor/hand2gripper_train_base_R_T_ee_R.npy")
-    gripper_widths_L = np.load("/home/yutian/Hand2Gripper_phantom/data/processed/epic/4/inpaint_processor/hand2gripper_train_gripper_width_left.npy")
-    gripper_widths_R = np.load("/home/yutian/Hand2Gripper_phantom/data/processed/epic/4/inpaint_processor/hand2gripper_train_gripper_width_right.npy")
+    processed_data_dir = "/home/yutian/Hand2Gripper_phantom/data/processed/epic/5/"
+    Mat_base_L_T_ee_L = np.load(f"{processed_data_dir}/inpaint_processor/hand2gripper_train_base_L_T_ee_L.npy")
+    Mat_base_R_T_ee_R = np.load(f"{processed_data_dir}/inpaint_processor/hand2gripper_train_base_R_T_ee_R.npy")
+    gripper_widths_L = np.load(f"{processed_data_dir}/inpaint_processor/hand2gripper_train_gripper_width_left.npy")
+    gripper_widths_R = np.load(f"{processed_data_dir}/inpaint_processor/hand2gripper_train_gripper_width_right.npy")
     # Initialize controller
     # Note: Adjust 'can0'/'can1' to match your actual hardware ports
     controller = RealDualArmController(left_can='can1', right_can='can3')
