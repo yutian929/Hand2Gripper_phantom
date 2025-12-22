@@ -120,7 +120,7 @@ def process_all_demos(cfg: DictConfig, processor_classes: dict) -> None:
         print(f"----------------- {mode.upper()} PROCESSOR -----------------")
         # >>> Hand2Gripper >>> #
         if mode.upper() in (
-            # 'BBOX', 
+            'BBOX', 
             # 'HAND_SEGMENTATION',
             # 'HAND2D', 
             # 'ARM_SEGMENTATION', 

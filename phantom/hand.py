@@ -448,13 +448,13 @@ class HandModel:
         if pred_triple[1] == pred_triple[2]:
             ee_ori = self.last_valid_ee_ori
         else:
-            thumb_tip = left_pt if hand_side == "right" else right_pt
-            index_tip = right_pt if hand_side == "right" else left_pt
             ### >>> orgin
             # gripper_ori, _ = HandModel.get_gripper_orientation(thumb_tip=thumb_tip, index_tip=index_tip, vertices=vertices, grasp_plane=None)
             ### >>> hand2gripper v2
             if version == 'v2':
+                print(f"pred_triple: {pred_triple}, base_pt: {base_pt}, left_pt: {left_pt}, right_pt: {right_pt}")
                 ee_ori = HandModel.get_gripper_orientation_3pts(base_pt, left_pt, right_pt)
+                print(f"ee_pt: {ee_pt}\nee_width: {ee_width}\nee_ori: {ee_ori}")
             ### >>> hand2gripper v1
             else:
                 gripper_ori, _ = HandModel.get_gripper_orientation(thumb_tip=vertices[4], index_tip=vertices[8], vertices=vertices, grasp_plane=None)
