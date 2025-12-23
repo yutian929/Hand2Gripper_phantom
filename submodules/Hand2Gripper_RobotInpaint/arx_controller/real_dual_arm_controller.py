@@ -31,6 +31,11 @@ class RealDualArmController:
         # self.left_arm.set_mode_position() 
         pass
 
+    def go_home(self):
+        """重置双臂控制器状态"""
+        self.left_arm.go_home()
+        self.right_arm.go_home()
+
     def _base_T_ee_to_flange_init_T_flange(self, M_base_T_ee):
         """将基座坐标系转换为法兰坐标系 (假设有固定偏移)"""
         # 这里假设一个简单的偏移矩阵作为示例

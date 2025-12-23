@@ -11,9 +11,18 @@ def test_real_dual_arm_controller():
     # Note: Adjust 'can0'/'can1' to match your actual hardware ports
     controller = RealDualArmController(left_can='can1', right_can='can3')
 
+    # add 10cm on x & z
+    refined_Mat_base_R_T_ee_R = []
+    for mat in Mat_base_R_T_ee_R:
+        refined_mat = mat.copy()
+        refined_mat[0, 3] += 0.1  # X axis offset
+        refined_mat[2, 3] += 0.1  # Z axis offset
+        refined_Mat_base_R_T_ee_R.append(refined_mat)
+
     # Execute trajectory
     # dt=0.04 corresponds to roughly 25Hz
-    controller.execute_trajectory(Mat_base_L_T_ee_L, Mat_base_R_T_ee_R, gripper_widths_L, gripper_widths_R, dt=0.1)
+    controller.execute_trajectory(Mat_base_L_T_ee_L, refined_Mat_base_R_T_ee_R, gripper_widths_L, gripper_widths_R, dt=0.1)
+    controller.go_home()
     
 
 

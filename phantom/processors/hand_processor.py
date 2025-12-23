@@ -49,6 +49,7 @@ import torch
 import cv2
 from utils.hand2gripper_visualize import vis_hand_2D_skeleton_without_bbox
 from wilor_mini.pipelines.wilor_hand_pose3d_estimation_pipeline import WiLorHandPose3dEstimationPipeline
+from wilor_mini.utils.utils import perspective_projection
 from hand2gripper_haco import HACOContactEstimatorWithoutRenderer
 from utils.bbox_utils import xyxy_to_xywh
 def flip_color_and_bbox(color: np.ndarray, bbox_xywh: np.ndarray, img_size: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -116,14 +117,17 @@ class HandBaseProcessor(BaseProcessor):
         """
         super().__init__(args)
         # self.process_hand_masks: bool = False
-        self._initialize_detectors()
         # self.hand_mask_processor: Optional[HandSegmentationProcessor] = HandSegmentationProcessor(args) if self.process_hand_masks else None
         self.apply_depth_alignment: bool = True
 
         # >>> Hand2Gripper >>> #
-        device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-        dtype = torch.float16
-        self.wilor_pipe = WiLorHandPose3dEstimationPipeline(device=device, dtype=dtype, verbose=False)
+        if self.hand_model == 'wilor':
+            device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+            dtype = torch.float16
+            self.wilor_pipe = WiLorHandPose3dEstimationPipeline(device=device, dtype=dtype, verbose=False)
+        else:
+            self._initialize_detectors()
+        
         self.contact_estimator = HACOContactEstimatorWithoutRenderer(
             backbone="hamer",
             checkpoint_path=os.path.join(os.path.dirname(__file__), '../../', 'submodules/Hand2Gripper_HACO/base_data/release_checkpoint/haco_final_hamer_checkpoint.ckpt'),
@@ -200,8 +204,11 @@ class HandBaseProcessor(BaseProcessor):
         # Apply depth-based pose refinement if enabled
         if self.apply_depth_alignment and os.path.exists(paths.depth) and os.path.exists(paths.masks_hand_left) and os.path.exists(paths.masks_hand_right):
             print("\nSecond Time, Applying depth-based pose refinement...")
-            left_sequence = self._process_all_frames_depth_alignment(imgs_rgb, left_hand_detected, "left", left_sequence)
-            right_sequence = self._process_all_frames_depth_alignment(imgs_rgb, right_hand_detected, "right", right_sequence)
+            if self.hand_model == 'wilor':
+                print("Depth alignment with WiLor is not yet implemented.")
+            else:
+                left_sequence = self._process_all_frames_depth_alignment(imgs_rgb, left_hand_detected, "left", left_sequence)
+                right_sequence = self._process_all_frames_depth_alignment(imgs_rgb, right_hand_detected, "right", right_sequence)
         else:
             print("\nFirst Time, Skipping depth-based pose refinement...")
         # <<< Hand2Gripper <<< #
@@ -267,10 +274,12 @@ class HandBaseProcessor(BaseProcessor):
         try:
             # >>> Hand2Gripper >>> #
             # Origin
-            # Apply HaMeR pose estimation within bounding box
-            # processed_data = self._process_image_with_hamer(img_rgb, bbox[None,...], hand_side, img_idx, view=view)
-            # Change to WiLor
-            processed_data = self._process_image_with_wilor(img_rgb, bbox[None,...], hand_side, img_idx, view=view)
+            if self.hand_model == 'wilor':
+                # Change to WiLor
+                processed_data = self._process_image_with_wilor(img_rgb, bbox[None,...], hand_side, img_idx, view=view)
+            else:
+                # Apply HaMeR pose estimation within bounding box
+                processed_data = self._process_image_with_hamer(img_rgb, bbox[None,...], hand_side, img_idx, view=view)
             # <<< Hand2Gripper <<< #
 
             # Quality check: reject poses where keypoints are too close to image edges
@@ -376,21 +385,33 @@ class HandBaseProcessor(BaseProcessor):
         img_depth = self.imgs_depth[img_idx]
         mask = self.left_masks[img_idx] if hand_side == "left" else self.right_masks[img_idx]
         hamer_out = self.hamer_out_dict[hand_side][img_idx]
-        
-        # Create 3D hand mesh from HaMeR pose estimate
-        mesh = self._create_hand_mesh(hamer_out)
+
+        if self.hand_model == 'wilor':
+            mesh = self._create_hand_mesh_wilor(hamer_out)
+        else:
+            # Create 3D hand mesh from HaMeR pose estimate
+            mesh = self._create_hand_mesh(hamer_out)
 
         # Generate point cloud from depth image within segmented hand region
         pcd = get_point_cloud_of_segmask(mask, img_depth, img_rgb, self.intrinsics_dict, visualize=False)
 
         # Identify visible mesh vertices and corresponding depth points
-        visible_points_3d, visible_hamer_vertices = self._get_visible_pts_from_hamer(
-            self.detector_hamer, 
-            hamer_out, 
-            mesh, 
-            img_depth, 
-            self.intrinsics_dict
-        )
+        if self.hand_model == 'wilor':  # TODO: implement for WiLor
+            visible_points_3d, visible_hamer_vertices = self._get_visible_pts_from_wilor(
+                self.wilor_pipe, 
+                hamer_out, 
+                mesh, 
+                img_depth, 
+                self.intrinsics_dict
+            )
+        else:
+            visible_points_3d, visible_hamer_vertices = self._get_visible_pts_from_hamer(
+                self.detector_hamer, 
+                hamer_out, 
+                mesh, 
+                img_depth, 
+                self.intrinsics_dict
+            )
         
         # Compute optimal transformation using ICP registration
         T, _ = self._get_transformation_estimate(visible_points_3d, visible_hamer_vertices, pcd)
@@ -488,6 +509,18 @@ class HandBaseProcessor(BaseProcessor):
             Trimesh object representing the hand mesh
         """
         return trimesh.Trimesh(hamer_out["verts"].copy(), self.detector_hamer.faces_left.copy(), process=False)
+
+    def _create_hand_mesh_wilor(self, hamer_out: Dict[str, Any]) -> trimesh.Trimesh:
+        """
+        Create a 3D triangle mesh from HaMeR pose estimation output.
+        
+        Args:
+            hamer_out: HaMeR output dictionary containing vertex positions
+            
+        Returns:
+            Trimesh object representing the hand mesh
+        """
+        return trimesh.Trimesh(hamer_out["pred_vertices"].copy(), self.wilor_pipe.wilor_model.mano.faces.copy(), process=False)
     
     def _get_hand_masks(self, data_sub_folder: str, hamer_data_left: HandSequence, hamer_data_right: HandSequence) -> None:
         """
@@ -506,6 +539,68 @@ class HandBaseProcessor(BaseProcessor):
             "right": hamer_data_right
         }
         self.hand_mask_processor.process_one_demo(data_sub_folder, hamer_data)
+    
+    @staticmethod
+    def _get_visible_pts_from_wilor(wilor_pipe: WiLorHandPose3dEstimationPipeline, hamer_out: Dict[str, Any], mesh: trimesh.Trimesh,
+                                img_depth: np.ndarray, cam_intrinsics: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Identify visible hand vertices and their corresponding depth points for WiLor output.
+        
+        Args:
+            wilor_pipe: WiLor pipeline instance
+            hamer_out: WiLor output containing pose estimates (stored in hamer_out_dict)
+            mesh: 3D hand mesh generated from WiLor output
+            img_depth: Depth image corresponding to the RGB frame
+            cam_intrinsics: Camera intrinsic parameters for 3D projection
+            
+        Returns:
+            Tuple of (visible_points_3d, visible_hamer_vertices):
+                - visible_points_3d: 3D points from depth image at visible mesh locations
+                - visible_hamer_vertices: Corresponding vertices from the mesh
+        """
+        # Perform ray-casting to identify visible mesh vertices
+        visible_hamer_vertices, _ = get_visible_points(mesh, origin=np.array([0,0,0]))
+        
+        # Prepare inputs for perspective projection
+        # WiLor outputs are already in camera frame if pred_vertices is used directly
+        # We need to project them to 2D using camera intrinsics
+        
+        points_3d = visible_hamer_vertices[np.newaxis, :, :] # (1, N, 3)
+        translation = np.zeros((1, 3)) # Translation is already applied in vertices
+        
+        # Extract intrinsics
+        fx = cam_intrinsics['fx']
+        fy = cam_intrinsics['fy']
+        cx = cam_intrinsics['cx']
+        cy = cam_intrinsics['cy']
+        
+        focal_length = np.array([[fx, fy]])
+        camera_center = np.array([[cx, cy]])
+        
+        # Project 3D vertices to 2D image coordinates
+        visible_points_2d = perspective_projection(
+            points=points_3d,
+            translation=translation,
+            focal_length=focal_length,
+            camera_center=camera_center
+        )[0] # (N, 2)
+
+        # Filter out points that fall outside the depth image boundaries
+        original_visible_points_2d = visible_points_2d.copy()
+
+        # Create valid region mask (note: depth indexing is [y, x])
+        valid_mask = ((original_visible_points_2d[:, 0] >= 0) & 
+                     (original_visible_points_2d[:, 0] < img_depth.shape[1]) & 
+                     (original_visible_points_2d[:, 1] >= 0) &
+                     (original_visible_points_2d[:, 1] < img_depth.shape[0]))
+
+        visible_points_2d = visible_points_2d[valid_mask]
+        visible_hamer_vertices = visible_hamer_vertices[valid_mask]
+        
+        # Convert 2D depth pixels to 3D points using camera intrinsics
+        visible_points_3d = get_3D_points_from_pixels(visible_points_2d, img_depth, cam_intrinsics)
+
+        return visible_points_3d, visible_hamer_vertices
 
     @staticmethod
     def _get_visible_pts_from_hamer(detector_hamer: DetectorHamer, hamer_out: Dict[str, Any], mesh: trimesh.Trimesh,
@@ -729,6 +824,8 @@ class Hand2DProcessor(HandBaseProcessor):
             joints_2d=kpts_2d, 
             is_right=is_right
         )
+
+        self.hamer_out_dict[hand_side][img_idx] = wilor_preds
 
         # Return data in the same format as _process_image_with_hamer
         return {
