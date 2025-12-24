@@ -2,7 +2,7 @@ def test_real_dual_arm_controller():
     from hand2gripper_robot_inpaint.arx_controller.real_dual_arm_controller import RealDualArmController
     import numpy as np
     from scipy.spatial.transform import Rotation as R
-    processed_data_dir = "/home/yutian/Hand2Gripper_phantom/data/processed/epic/5/"
+    processed_data_dir = "/home/yutian/Hand2Gripper_phantom/data/processed/epic/6/"
     Mat_base_L_T_ee_L = np.load(f"{processed_data_dir}/inpaint_processor/hand2gripper_train_base_L_T_ee_L.npy")
     Mat_base_R_T_ee_R = np.load(f"{processed_data_dir}/inpaint_processor/hand2gripper_train_base_R_T_ee_R.npy")
     gripper_widths_L = np.load(f"{processed_data_dir}/inpaint_processor/hand2gripper_train_gripper_width_left.npy")
@@ -18,6 +18,10 @@ def test_real_dual_arm_controller():
         refined_mat[0, 3] += 0.1  # X axis offset
         refined_mat[2, 3] += 0.1  # Z axis offset
         refined_Mat_base_R_T_ee_R.append(refined_mat)
+    
+    # m -> mm
+    gripper_widths_L = gripper_widths_L * 1000
+    gripper_widths_R = gripper_widths_R * 1000
 
     # Execute trajectory
     # dt=0.04 corresponds to roughly 25Hz

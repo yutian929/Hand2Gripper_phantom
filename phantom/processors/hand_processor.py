@@ -43,6 +43,7 @@ from phantom.detectors.detector_hamer import DetectorHamer
 from phantom.processors.phantom_data import HandSequence, HandFrame, hand_side_dict
 from phantom.processors.paths import Paths
 from phantom.processors.segmentation_processor import HandSegmentationProcessor
+from pathlib import Path
 
 # >>> Hand2Gripper >>> #
 import torch
@@ -146,7 +147,12 @@ class HandBaseProcessor(BaseProcessor):
         
         Sets up the HaMeR detector for hand pose estimation. 
         """
-        self.detector_hamer = DetectorHamer()
+        try:
+            # Try passing root_dir if supported to fix path issues
+            project_root = Path(__file__).parents[2].resolve()
+            self.detector_hamer = DetectorHamer(root_dir=str(project_root))
+        except TypeError:
+            self.detector_hamer = DetectorHamer()
 
     def process_one_demo(self, data_sub_folder: str) -> None:
         """

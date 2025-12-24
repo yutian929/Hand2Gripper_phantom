@@ -430,9 +430,11 @@ class HandModel:
             is_right=np.array([hand_side == "right"], dtype=np.bool_),
         )
 
-        base_pt = vertices[pred_triple[0]]
-        left_pt = vertices[pred_triple[1]]
-        right_pt = vertices[pred_triple[2]]
+        base_pt = (vertices[0] + vertices[1]) / 2  # Wrist center
+        # left_pt = vertices[pred_triple[1]]
+        # right_pt = vertices[pred_triple[2]]
+        left_pt = vertices[4]
+        right_pt = vertices[8]
 
         # print(f"hand_side: {hand_side}, left_pt: {pred_triple[1]}, right_pt: {pred_triple[2]}")
 
@@ -452,9 +454,9 @@ class HandModel:
             # gripper_ori, _ = HandModel.get_gripper_orientation(thumb_tip=thumb_tip, index_tip=index_tip, vertices=vertices, grasp_plane=None)
             ### >>> hand2gripper v2
             if version == 'v2':
-                print(f"pred_triple: {pred_triple}, base_pt: {base_pt}, left_pt: {left_pt}, right_pt: {right_pt}")
+                # print(f"pred_triple: {pred_triple}, base_pt: {base_pt}, left_pt: {left_pt}, right_pt: {right_pt}")
                 ee_ori = HandModel.get_gripper_orientation_3pts(base_pt, left_pt, right_pt)
-                print(f"ee_pt: {ee_pt}\nee_width: {ee_width}\nee_ori: {ee_ori}")
+                # print(f"ee_pt: {ee_pt}\nee_width: {ee_width}\nee_ori: {ee_ori}")
             ### >>> hand2gripper v1
             else:
                 gripper_ori, _ = HandModel.get_gripper_orientation(thumb_tip=vertices[4], index_tip=vertices[8], vertices=vertices, grasp_plane=None)
