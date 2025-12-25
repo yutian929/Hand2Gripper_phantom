@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import time
+import json
 import numpy as np
 import cv2
 import pyrealsense2 as rs
@@ -210,7 +211,7 @@ def get_T_link_optical():
 # =========================
 # 7) 主程序：D435采图 + ArUco检测 + Free-drag + 采集/解算
 # =========================
-def main(file_name="eye_to_hand_result_right.npz"):
+def main(file_name="eye_to_hand_result_right.json"):
     print("Connecting arm...")
     arm = SingleArm(ARM_CONFIG)
 
@@ -355,18 +356,21 @@ def main(file_name="eye_to_hand_result_right.npz"):
 
                 print("\nOptimizer:", sol.success, sol.message)
 
-                np.savez(
-                    file_name,
-                    T_base_cam=X,            # Optical Frame
-                    T_base_link=T_base_link, # Link Frame (Converted)
-                    T_flange_marker=Y,
-                    K=K,
-                    dist=dist,
-                    raw_ee=np.array(raw_ee_list),
-                    B_list=np.array(B_list),
-                    degrees=degrees,
-                    mode=mode
-                )
+                save_data = {
+                    "T_base_cam": X.tolist(),            # Optical Frame
+                    "T_base_link": T_base_link.tolist(), # Link Frame (Converted)
+                    "T_flange_marker": Y.tolist(),
+                    "K": K.tolist(),
+                    "dist": dist.tolist(),
+                    "raw_ee": [arr.tolist() for arr in raw_ee_list],
+                    "B_list": [arr.tolist() for arr in B_list],
+                    "degrees": bool(degrees),
+                    "mode": mode
+                }
+
+                with open(file_name, 'w') as f:
+                    json.dump(save_data, f, indent=4)
+                
                 print(f"\n[OK] Saved: {file_name}\n")
 
     finally:
@@ -375,4 +379,4 @@ def main(file_name="eye_to_hand_result_right.npz"):
 
 
 if __name__ == "__main__":
-    main(file_name="eye_to_hand_result_right_20251218.npz")
+    main(file_name="eye_to_hand_result_right_20251218.json")

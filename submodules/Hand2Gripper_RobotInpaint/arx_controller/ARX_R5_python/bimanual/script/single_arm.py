@@ -90,6 +90,9 @@ class SingleArm:
             urdf_path = os.path.join(current_dir,"R5_master.urdf")
         self.arm = arx.InterfacesPy(urdf_path,config.get("can_port", "can0"),type)
         self.arm.arx_x(500,2000,10)
+        
+        # Base frame offset: Initial flange is at (10, 0, 10) in Base frame
+        self.base_offset = np.array([10.0, 0.0, 10.0])
 
     def get_joint_names(self) -> List[str]:
         """
@@ -150,8 +153,9 @@ class SingleArm:
             **kwargs: Additional arguments
 
         """
-
-        self.arm.set_ee_pose([pos[0], pos[1], pos[2], quat[0], quat[1], quat[2], quat[3]])
+        # Convert from Base frame to Init frame
+        target_pos = np.array(pos) - self.base_offset
+        self.arm.set_ee_pose([target_pos[0], target_pos[1], target_pos[2], quat[0], quat[1], quat[2], quat[3]])
         self.arm.set_arm_status(4)
 
     def set_ee_pose_xyzrpy(
@@ -168,9 +172,12 @@ class SingleArm:
 
         """
         quat = euler_to_quaternion(xyzrpy[3], xyzrpy[4], xyzrpy[5])
+        
+        # Convert from Base frame to Init frame
+        target_pos = np.array(xyzrpy[:3]) - self.base_offset
 
         self.arm.set_ee_pose(
-            [xyzrpy[0], xyzrpy[1], xyzrpy[2], quat[0], quat[1], quat[2], quat[3]]
+            [target_pos[0], target_pos[1], target_pos[2], quat[0], quat[1], quat[2], quat[3]]
         )
         self.arm.set_arm_status(4)
 
@@ -216,7 +223,10 @@ class SingleArm:
             End effector pose as (position, quaternion)
             Shapes: position (3,), quaternion (4,) [w, x, y, z]
         """
-        xyzwxyz = self.arm.get_ee_pose()
+        xyzwxyz = np.array(self.arm.get_ee_pose())
+        
+        # Convert from Init frame to Base frame
+        xyzwxyz[:3] += self.base_offset
 
         return xyzwxyz
 
@@ -229,8 +239,11 @@ class SingleArm:
         array = np.array([xyzwxyz[3], xyzwxyz[4], xyzwxyz[5], xyzwxyz[6]])
 
         roll, pitch, yaw = quaternion_to_euler(array)
+        
+        # Convert from Init frame to Base frame
+        current_pos = np.array(xyzwxyz[:3]) + self.base_offset
 
-        xyzrpy = np.array([xyzwxyz[0], xyzwxyz[1], xyzwxyz[2], roll, pitch, yaw])
+        xyzrpy = np.array([current_pos[0], current_pos[1], current_pos[2], roll, pitch, yaw])
 
         return xyzrpy
 
