@@ -301,9 +301,8 @@ def main(file_name="eye_to_hand_result_right.json"):
                 # 同时显示“当作度”的版本，方便肉眼判断
                 rpy_deg = rpy * 180.0 / np.pi if np.max(np.abs(rpy)) <= 6.5 else rpy
                 lines += [
-                    f"EE xyz: [{xyz[0]: .4f}, {xyz[1]: .4f}, {xyz[2]: .4f}] (m?)",
+                    f"EE xyz: [{xyz[0]: .4f}, {xyz[1]: .4f}, {xyz[2]: .4f}] (m)",
                     f"EE rpy raw: [{rpy[0]: .4f}, {rpy[1]: .4f}, {rpy[2]: .4f}]",
-                    f"EE rpy ~deg: [{rpy_deg[0]: .1f}, {rpy_deg[1]: .1f}, {rpy_deg[2]: .1f}] deg",
                 ]
             else:
                 lines += ["EE pose: N/A"]
@@ -357,15 +356,9 @@ def main(file_name="eye_to_hand_result_right.json"):
                 print("\nOptimizer:", sol.success, sol.message)
 
                 save_data = {
-                    "T_base_cam": X.tolist(),            # Optical Frame
-                    "T_base_link": T_base_link.tolist(), # Link Frame (Converted)
-                    "T_flange_marker": Y.tolist(),
-                    "K": K.tolist(),
-                    "dist": dist.tolist(),
-                    "raw_ee": [arr.tolist() for arr in raw_ee_list],
-                    "B_list": [arr.tolist() for arr in B_list],
-                    "degrees": bool(degrees),
-                    "mode": mode
+                    "Mat_base_T_camera_optical": X.tolist(),
+                    "Mat_base_T_camera_link": T_base_link.tolist(),
+                    "Mat_flange_T_marker": Y.tolist()
                 }
 
                 with open(file_name, 'w') as f:
@@ -379,4 +372,5 @@ def main(file_name="eye_to_hand_result_right.json"):
 
 
 if __name__ == "__main__":
-    main(file_name="eye_to_hand_result_right_20251218.json")
+    main(file_name="eye_to_hand_result_right_latest.json")
+    # main(file_name="eye_to_hand_result_left_latest.json")

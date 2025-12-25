@@ -92,7 +92,7 @@ class SingleArm:
         self.arm.arx_x(500,2000,10)
         
         # Base frame offset: Initial flange is at (10, 0, 10) in Base frame
-        self.base_offset = np.array([10.0, 0.0, 10.0])
+        self.base_offset = np.array([0.09, 0.0, 0.10])
 
     def get_joint_names(self) -> List[str]:
         """
