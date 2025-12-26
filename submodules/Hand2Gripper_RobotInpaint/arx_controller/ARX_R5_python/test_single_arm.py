@@ -5,10 +5,9 @@ import numpy as np
 def test_single_arm(single_arm: SingleArm, duration: float = 10.0, dt: float = 0.01):
     #single_arm.go_home()
     while(1):
-        position = np.array([0.0, 0.0, 0.1])  # x, y, z 位置
-        quaternion = np.array([1.0, 0.0, 0.0, 0.0])  # 四元数表示方向
+        xyzrpy = np.array([0.2, 0.0, 0.2, 0.0, 0.0, 0.0])
 
-        success = single_arm.set_ee_pose(pos=position, quat=quaternion)
+        success = single_arm.set_ee_pose_xyzrpy(xyzrpy=xyzrpy)
         
         while(1):
             print("testing ...")

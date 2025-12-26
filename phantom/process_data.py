@@ -139,11 +139,6 @@ def process_all_demos(cfg: DictConfig, processor_classes: dict) -> None:
             # >>> Hand2Gripper >>> #
             if data_sub_folder in (
                 '', 
-                '0',
-                '1',
-                '2',
-                '3',
-                '4',
             ):
                 continue
             # <<< Hand2Gripper <<< #

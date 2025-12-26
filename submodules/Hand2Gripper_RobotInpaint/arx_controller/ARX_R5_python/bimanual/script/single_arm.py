@@ -9,7 +9,7 @@ def quaternion_to_euler(quat: np.ndarray) -> Tuple[float, float, float]:
     """
     将四元数转换为欧拉角（roll, pitch, yaw）
     参数：
-        quat: np.ndarray, 长度为 4 的数组 [w, x, y, z]
+        quat: np.ndarray, 长度为 4 的数组 [w, x, y, z] (Consistent with MuJoCo)
     返回：
         roll, pitch, yaw: 以弧度为单位的欧拉角
     """
@@ -45,7 +45,7 @@ def euler_to_quaternion(roll: float, pitch: float, yaw: float) -> np.ndarray:
         yaw: 绕 z 轴的旋转角（弧度）
 
     返回：
-        np.ndarray: 长度为 4 的四元数数组 [w, x, y, z]
+        np.ndarray: 长度为 4 的四元数数组 [w, x, y, z] (Consistent with MuJoCo)
     """
     cy = np.cos(yaw * 0.5)
     sy = np.sin(yaw * 0.5)
@@ -149,7 +149,7 @@ class SingleArm:
         Args:
             pos: Desired position [x, y, z]. Shape: (3,)
             ori: Desired orientation (quaternion).
-                 Shape: (4,) (w, x, y, z)
+                 Shape: (4,) (w, x, y, z) (Consistent with MuJoCo)
             **kwargs: Additional arguments
 
         """

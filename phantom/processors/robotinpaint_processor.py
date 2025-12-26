@@ -181,8 +181,8 @@ class RobotInpaintProcessor(BaseProcessor):
                 from scipy.spatial.transform import Rotation as R
                 
                 # [关键] 使用你指定的带 ee_width 的控制器
-                from hand2gripper_robot_inpaint.arx_controller.dual_arm_controller_with_ee_width import DualArmController
-                from hand2gripper_robot_inpaint.arx_controller.test_single_arm import load_and_transform_data, pose_to_matrix, matrix_to_pose
+                from hand2gripper_robot_inpaint.arx_controller.mujoco_dual_arm_controller import DualArmController
+                from hand2gripper_robot_inpaint.arx_controller.test_dual_arm import load_and_transform_data, pose_to_matrix, matrix_to_pose, load_calibration_matrix
 
                 # 1. 初始化仿真
                 xml_path_str = "/home/yutian/Hand2Gripper_phantom/submodules/Hand2Gripper_RobotInpaint/arx_controller/R5/R5a/meshes/dual_arm_scene.xml"
@@ -190,15 +190,13 @@ class RobotInpaintProcessor(BaseProcessor):
                     print(f"Error: XML not found at {xml_path_str}")
                     return
                 
-                dual_robot = DualArmController(xml_path_str, max_steps=100)
+                dual_robot = DualArmController(xml_path_str)
 
                 # 2. 准备渲染用的轨迹数据 (Pose 6D)
                 # -------------------------------------
                 # 定义相机与基座的变换
-                hand_eye_calib_L = np.load(self.eye_to_hand_left)
-                hand_eye_calib_R = np.load(self.eye_to_hand_right)
-                Mat_base_L_T_camera = hand_eye_calib_L["T_base_link"]
-                Mat_base_R_T_camera = hand_eye_calib_R["T_base_link"]
+                Mat_base_L_T_camera = load_calibration_matrix(self.eye_to_hand_left)
+                Mat_base_R_T_camera = load_calibration_matrix(self.eye_to_hand_right)
                 Mat_world_T_base_L = pose_to_matrix(dual_robot._get_base_pose_world("L"))
                 Mat_world_T_base_R = pose_to_matrix(dual_robot._get_base_pose_world("R"))
                 
@@ -308,7 +306,7 @@ class RobotInpaintProcessor(BaseProcessor):
                     seqs_L_in_world_7d, 
                     seqs_R_in_world_7d, 
                     cam_poses, 
-                    50, kinematic_only=True, cam_name="camera", width=640, height=480
+                    cam_name="camera", width=640, height=480
                 )
 
                 if len(sim_frames) == 0: return

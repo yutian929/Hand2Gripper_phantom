@@ -1,36 +1,59 @@
+import json
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
-def inv(T):
-    Rm, t = T[:3,:3], T[:3,3]
-    Ti = np.eye(4)
-    Ti[:3,:3] = Rm.T
-    Ti[:3,3]  = -Rm.T @ t
-    return Ti
+def load_json(path):
+    with open(path, 'r') as f:
+        return json.load(f)
 
-def quat_wxyz_from_R(Rm):
-    q_xyzw = R.from_matrix(Rm).as_quat()   # [x,y,z,w]
-    return np.array([q_xyzw[3], q_xyzw[0], q_xyzw[1], q_xyzw[2]])
+def get_T_from_left_json(data):
+    return np.array(data["Mat_base_T_camera_link"])
 
-T_L = np.load("/home/yutian/Hand2Gripper_phantom/phantom/camera/eye_to_hand_result_left_latest.npz")["T_base_link"]   # base_T_cam
-T_R = np.load("/home/yutian/Hand2Gripper_phantom/phantom/camera/eye_to_hand_result_right_latest.npz")["T_base_link"]
+def get_T_from_right_json(data):
+    return np.array(data["Mat_base_T_camera_link"])
 
-# 方案A：固定左臂 base 在你想要的位置（这里填你 XML 里的左臂 base）
-T_world_base_L = np.eye(4)
-T_world_base_L[:3,3] = np.array([0.0, 0.0, 1.0])  # <-- 改成你的左臂 base 位置
-# 如果左臂 base 不是单位朝向，也要把旋转写进 T_world_base_L[:3,:3]
+def main():
+    # Paths to the JSON files provided
+    left_json_path = "/home/yutian/Hand2Gripper_phantom/phantom/camera/eye_to_hand_result_left_latest.json"
+    right_json_path = "/home/yutian/Hand2Gripper_phantom/phantom/camera/eye_to_hand_result_right_latest.json"
 
-T_world_base_R = T_world_base_L @ T_L @ inv(T_R)
+    try:
+        left_data = load_json(left_json_path)
+        right_data = load_json(right_json_path)
+    except FileNotFoundError as e:
+        print(f"Error loading files: {e}")
+        return
 
-pos_R  = T_world_base_R[:3,3]
-quat_R = quat_wxyz_from_R(T_world_base_R[:3,:3])
+    T_LB_C = get_T_from_left_json(left_data)
+    T_RB_C = get_T_from_right_json(right_data)
 
-print("base_link_R pos =", pos_R)
-print("base_link_R quat(wxyz) =", quat_R)
+    # We want T_LB_RB (LeftBase to RightBase)
+    # T_LB_C = T_LB_RB @ T_RB_C  => T_LB_RB = T_LB_C @ inv(T_RB_C)
+    T_RB_C_inv = np.linalg.inv(T_RB_C)
+    T_LB_RB = T_LB_C @ T_RB_C_inv
 
-# 顺便验证 camera check 会是 0
-T_world_cam_L = T_world_base_L @ T_L
-T_world_cam_R = T_world_base_R @ T_R
-pos_diff = np.linalg.norm(T_world_cam_L[:3,3] - T_world_cam_R[:3,3])
-rot_diff = np.linalg.norm(R.from_matrix(T_world_cam_L[:3,:3].T @ T_world_cam_R[:3,:3]).as_rotvec())
-print("pos_diff =", pos_diff, "rot_diff_deg =", np.degrees(rot_diff))
+    # World Frame: Left Base is at (0, 0, 1.0) with Identity rotation
+    T_W_LB = np.eye(4)
+    T_W_LB[:3, 3] = [0.0, 0.0, 1.0]
+
+    # T_W_RB = T_W_LB @ T_LB_RB
+    T_W_RB = T_W_LB @ T_LB_RB
+
+    pos = T_W_RB[:3, 3]
+    
+    # Scipy returns (x, y, z, w)
+    quat = R.from_matrix(T_W_RB[:3, :3]).as_quat() 
+    
+    # MuJoCo uses (w, x, y, z)
+    # We manually reorder to ensure consistency with MuJoCo
+    mujoco_quat = [quat[3], quat[0], quat[1], quat[2]]
+
+    print("Calculated Right Arm Base Pose in World Frame:")
+    print(f"Position: {pos}")
+    print(f"Quaternion (w,x,y,z): {mujoco_quat}")
+    
+    print("\nCopy the following attributes to the 'base_link_R' body in your XML:")
+    print(f'pos="{pos[0]:.4f} {pos[1]:.4f} {pos[2]:.4f}" quat="{mujoco_quat[0]:.4f} {mujoco_quat[1]:.4f} {mujoco_quat[2]:.4f} {mujoco_quat[3]:.4f}"')
+
+if __name__ == "__main__":
+    main()
