@@ -5,7 +5,7 @@ import json
 import matplotlib.pyplot as plt
 import mediapy as media
 from scipy.spatial.transform import Rotation as R
-from hand2gripper_robot_inpaint.arx_controller.mujoco_dual_arm_controller import DualArmController
+from hand2gripper_robot_inpaint.arx_controller.mujoco_dual_arm_controller import DualArmController, FLANGE_GRIPPER_GAP
 
 def load_calibration_matrix(json_path):
     with open(json_path, 'r') as f:
@@ -245,6 +245,8 @@ if __name__ == "__main__":
     camera_poses_world = np.array([matrix_to_pose(Mat_world_T_camera_L) for _ in range(len(seqs_L_in_world))])
 
     if seqs_L_in_world is not None and seqs_R_in_world is not None:
+        seqs_L_in_world[:, :3] += FLANGE_GRIPPER_GAP
+        seqs_R_in_world[:, :3] += FLANGE_GRIPPER_GAP
         try:
             print("########## Executing dual arm move_trajectory ##########")
             # dual_robot.move_trajectory(seqs_L_in_world, seqs_R_in_world, 50, kinematic_only=True)

@@ -7,8 +7,9 @@ import cv2
 import bimanual
 from scipy.spatial.transform import Rotation as R
 
-# 特定补偿值 (与单臂代码一致)
-FLANGE_GRIPPER_OFFSET_MUJOCO_SPECIFIC = np.array([-0.14, 0.0, -0.06])
+# 特定补偿值
+FLANGE_MUJOCO_REAL_GAP = np.array([-0.02, -0.01, -0.066])
+FLANGE_GRIPPER_GAP = np.array([-0.1, 0.0, 0.0])  # Gripper to Flange offset
 
 class DualArmController:
     def __init__(self, xml_path, arm_names=None, end_effector_site_names=None, base_link_names=None, position_threshold=0.02):
@@ -183,8 +184,8 @@ class DualArmController:
     # ========================================================
     def move_trajectory_with_camera(self, target_seqs_L_world, target_seqs_R_world, camera_poses_world, cam_name="camera", width=640, height=480):
         """
-        连续执行一系列双臂目标点，并同步移动相机进行拍摄。
-        输入形状需为 (N, 7)，第7位为夹爪宽度。
+        连续执行一系列双臂目标点(Flange)，并同步移动相机进行拍摄。
+        输入形状需为 (N, 7),第7位为夹爪宽度。
         """
         if not self.ARM_NAMES: return [], []
         
@@ -222,8 +223,8 @@ class DualArmController:
         for i in range(num_points):
             for name in self.ARM_NAMES:
                 full_data = target_world_seqs[name][i]
-                pose = full_data[:6]  # gripper ee in world frame
-                pose[:3] += FLANGE_GRIPPER_OFFSET_MUJOCO_SPECIFIC  # Apply flange to gripper offset
+                pose = full_data[:6].copy()  # Make a copy to avoid modifying original target for visualization
+                pose[:3] += FLANGE_MUJOCO_REAL_GAP  # mujoco flange dismatch compensation
                 # now pose is flange in world frame
                 
                 # Gripper Logic
@@ -257,10 +258,13 @@ class DualArmController:
                 # 获取当前帧目标
                 current_joint_targets = {name: joint_targets_queue[name][i] for name in self.ARM_NAMES}
                 current_gripper_targets = {name: gripper_targets_queue[name][i] for name in self.ARM_NAMES}
+                
+                # Retrieve original target pose (World Frame) for visualization and error checking
+                # Note: target_world_seqs contains the original input sequence (unmodified)
                 current_pose_targets = {name: target_world_seqs[name][i][:6] for name in self.ARM_NAMES}
                 current_cam_pose = camera_poses_world[i]
                 
-                # 更新 Mocap Marker
+                # 更新 Mocap Marker (Visualize the input target sequence in World Frame)
                 for name in self.ARM_NAMES:
                     self._update_mocap_marker(current_pose_targets[name][:3], name)
                 
@@ -278,6 +282,21 @@ class DualArmController:
                 # 刷新模型状态
                 mujoco.mj_forward(self.model, self.data)
                 
+                # --- Calculate and Print Flange Error ---
+                for name in self.ARM_NAMES:
+                    # Current Flange (Link6) Position
+                    flange_body_name = f"link6_{name}"
+                    bid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, flange_body_name)
+                    curr_flange = self.data.xpos[bid] if bid != -1 else np.zeros(3)
+                    
+                    # Target Flange Position = Input Target (Gripper) + Offset
+                    targ_flange = current_pose_targets[name][:3]
+                    
+                    diff = curr_flange - targ_flange
+                    dist = np.linalg.norm(diff)
+                    
+                    print(f"[{name}] Flange Err: {dist:.5f} | XYZ: {np.round(diff, 5)}")
+
                 # 渲染 RGB
                 renderer.update_scene(self.data, camera=cam_name)
                 rgb_list.append(renderer.render().copy())
@@ -292,7 +311,12 @@ class DualArmController:
                 viewer.sync()
                 
                 # 可选：稍微延时以便肉眼观察
-                # time.sleep(0.01)
+                time.sleep(0.05)
+
+            print("Trajectory finished. Viewer is open. Close the window to continue...")
+            # while viewer.is_running():
+            #     time.sleep(10)
+            #     viewer.sync()
 
         print("[Trajectory & Cam] All frames captured.")
         return rgb_list, mask_list
@@ -314,13 +338,13 @@ if __name__ == "__main__":
         # --- 左臂关键帧序列 ---
         seqs_L = [
             # 1. 准备 (高处, 张开)
-            [0.4,  0.0, 1.3, 0, 0, 0, 0.044],
+            [0.4,  0.0, 1.4, 0, 0, 0, 0.00],
         ]
         
         # --- 右臂关键帧序列 ---
         seqs_R = [
             # 1. 准备 (高处, 张开) - Y是负的
-            [0.4, -0.4, 1.2, 0, 0, 0, 0.044],
+            [0.4,  -0.4, 1.4, 0, 0, 0, 0.00],
         ]
 
         # -------------------------------------------------------------------
@@ -372,8 +396,5 @@ if __name__ == "__main__":
                     break
             
             cv2.destroyAllWindows()
-
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        print(f"Error: {e}")
+        print(f"[Error] {e}")

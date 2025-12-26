@@ -181,7 +181,7 @@ class RobotInpaintProcessor(BaseProcessor):
                 from scipy.spatial.transform import Rotation as R
                 
                 # [关键] 使用你指定的带 ee_width 的控制器
-                from hand2gripper_robot_inpaint.arx_controller.mujoco_dual_arm_controller import DualArmController
+                from hand2gripper_robot_inpaint.arx_controller.mujoco_dual_arm_controller import DualArmController, FLANGE_GRIPPER_GAP
                 from hand2gripper_robot_inpaint.arx_controller.test_dual_arm import load_and_transform_data, pose_to_matrix, matrix_to_pose, load_calibration_matrix
 
                 # 1. 初始化仿真
@@ -273,6 +273,8 @@ class RobotInpaintProcessor(BaseProcessor):
                                          f"Rot Diff: {np.degrees(rot_diff_angle):.2f} > 6 deg")
 
                 camera_poses_world = np.array([matrix_to_pose(Mat_world_T_camera_L) for _ in range(len(seqs_L_in_world_6d))])
+                seqs_L_in_world_6d[:, :3] += FLANGE_GRIPPER_GAP
+                seqs_R_in_world_6d[:, :3] += FLANGE_GRIPPER_GAP
 
                 # 3. 准备夹爪数据 (Width 1D)
                 # -------------------------------------

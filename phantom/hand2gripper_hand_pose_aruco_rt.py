@@ -6,6 +6,8 @@ import time
 import numpy as np
 import cv2
 import sys
+import json
+import os
 from pathlib import Path
 import trimesh
 import torch
@@ -286,19 +288,54 @@ def detect_aruco(img_bgr, aruco_dict, params, detector=None):
     return corners, ids
 
 
+def my_estimatePoseSingleMarkers(corners, marker_length, camera_matrix, dist_coeffs):
+    """
+    Compatibility wrapper for estimatePoseSingleMarkers.
+    """
+    if hasattr(cv2.aruco, "estimatePoseSingleMarkers"):
+        return cv2.aruco.estimatePoseSingleMarkers(corners, marker_length, camera_matrix, dist_coeffs)
+    else:
+        # Fallback using solvePnP for each marker
+        rvecs = []
+        tvecs = []
+        # Define object points for a single marker (centered at origin)
+        # Top-Left, Top-Right, Bottom-Right, Bottom-Left
+        half_size = marker_length / 2.0
+        obj_points = np.array([
+            [-half_size, half_size, 0],
+            [half_size, half_size, 0],
+            [half_size, -half_size, 0],
+            [-half_size, -half_size, 0]
+        ], dtype=np.float32)
+
+        for c in corners:
+            # c is shape (1, 4, 2)
+            img_points = c.reshape(4, 2).astype(np.float32)
+            success, rvec, tvec = cv2.solvePnP(obj_points, img_points, camera_matrix, dist_coeffs)
+            if success:
+                rvecs.append(rvec)
+                tvecs.append(tvec)
+            else:
+                rvecs.append(np.zeros((3, 1)))
+                tvecs.append(np.zeros((3, 1)))
+        
+        return np.array(rvecs), np.array(tvecs), None
+
+
 def draw_aruco_overlay(img_bgr, corners, ids, depth_m, rs_intrinsics, camera_matrix, dist_coeffs, marker_length=0.05):
     """
     Draw marker axes and center pixel; return 3D info for top-left display.
+    Also draws 3D coordinates near the marker center.
     """
     info_lines = []
     if ids is None or len(ids) == 0:
         return img_bgr, info_lines
 
-    # Draw axes
+    rvecs, tvecs = None, None
+    # Draw axes and get pose
     try:
         # estimatePoseSingleMarkers returns rvecs, tvecs, objPoints
-        # Note: This function might be unavailable in some opencv-python-headless versions or require contrib
-        rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(corners, marker_length, camera_matrix, dist_coeffs)
+        rvecs, tvecs, _ = my_estimatePoseSingleMarkers(corners, marker_length, camera_matrix, dist_coeffs)
         for i in range(len(ids)):
             cv2.drawFrameAxes(img_bgr, camera_matrix, dist_coeffs, rvecs[i], tvecs[i], marker_length)
     except Exception as e:
@@ -316,12 +353,28 @@ def draw_aruco_overlay(img_bgr, corners, ids, depth_m, rs_intrinsics, camera_mat
         # Draw center point
         cv2.circle(img_bgr, (cx, cy), 6, (255, 255, 0), -1)
 
-        d = robust_depth_at(depth_m, cx, cy, k=7)
-        if d is not None:
-            X, Y, Z = deproject_pixel_to_3d(rs_intrinsics, cx, cy, d)
-            info_lines.append(f"ArUco[{int(ids[i])}]: ({X:.3f}, {Y:.3f}, {Z:.3f}) m")
-        else:
-            info_lines.append(f"ArUco[{int(ids[i])}]: Depth Invalid")
+        X, Y, Z = None, None, None
+
+        # Priority 1: Use Depth sensor if available
+        if depth_m is not None and rs_intrinsics is not None:
+            d = robust_depth_at(depth_m, cx, cy, k=7)
+            if d is not None:
+                X, Y, Z = deproject_pixel_to_3d(rs_intrinsics, cx, cy, d)
+                info_lines.append(f"ArUco[{int(ids[i])}]: ({X:.3f}, {Y:.3f}, {Z:.3f}) m")
+            else:
+                info_lines.append(f"ArUco[{int(ids[i])}]: Depth Invalid")
+        
+        # Priority 2: Use SolvePnP (Video mode) if Depth failed or unavailable
+        if X is None and tvecs is not None and i < len(tvecs):
+            # tvec is [x, y, z]
+            t = tvecs[i].flatten()
+            X, Y, Z = t[0], t[1], t[2]
+            info_lines.append(f"ArUco[{int(ids[i])}]: ({X:.3f}, {Y:.3f}, {Z:.3f}) m (PnP)")
+
+        # Draw text on image if coordinates found
+        if X is not None:
+            text = f"({X:.2f}, {Y:.2f}, {Z:.2f})"
+            cv2.putText(img_bgr, text, (cx + 10, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
 
     return img_bgr, info_lines
 
@@ -421,37 +474,101 @@ def main():
     parser.add_argument("--aruco_dict", type=str, default="DICT_4X4_50")
     parser.add_argument("--marker_length", type=float, default=0.05, help="ArUco marker side length in meters")
     parser.add_argument("--device_sn", type=str, default="", help="可选：指定 RealSense 序列号")
+    
+    # New arguments for video input and saving
+    parser.add_argument("--video_path", type=str, default=None, help="Path to input video file. If set, RealSense is disabled.")
+    parser.add_argument("--output_json", type=str, default="output.json", help="Path to save results to JSON.")
+    parser.add_argument("--intrinsics_json", type=str, default=None, help="Path to intrinsics JSON file (required for video mode).")
+
     args = parser.parse_args()
 
-    # ---- RealSense pipeline ----
-    pipeline = rs.pipeline()
-    config = rs.config()
-    if args.device_sn.strip():
-        config.enable_device(args.device_sn.strip())
-    config.enable_stream(rs.stream.color, args.width, args.height, rs.format.bgr8, args.fps)
-    config.enable_stream(rs.stream.depth, args.width, args.height, rs.format.z16, args.fps)
+    # State variables
+    use_realsense = (args.video_path is None)
+    pipeline = None
+    cap = None
+    
+    # Intrinsics placeholders
+    intr_dict = None
+    camera_matrix = None
+    dist_coeffs = None
+    depth_scale = 1.0
+    rs_intr = None # RealSense intrinsics object
 
-    profile = pipeline.start(config)
+    if use_realsense:
+        # ---- RealSense pipeline ----
+        pipeline = rs.pipeline()
+        config = rs.config()
+        if args.device_sn.strip():
+            config.enable_device(args.device_sn.strip())
+        config.enable_stream(rs.stream.color, args.width, args.height, rs.format.bgr8, args.fps)
+        config.enable_stream(rs.stream.depth, args.width, args.height, rs.format.z16, args.fps)
 
-    depth_sensor = profile.get_device().first_depth_sensor()
-    depth_scale = depth_sensor.get_depth_scale()  # meters per unit
-    print(f"[INFO] depth_scale = {depth_scale} m/unit")
+        profile = pipeline.start(config)
 
-    # Align depth to color
-    align = rs.align(rs.stream.color)
+        depth_sensor = profile.get_device().first_depth_sensor()
+        depth_scale = depth_sensor.get_depth_scale()  # meters per unit
+        print(f"[INFO] depth_scale = {depth_scale} m/unit")
 
-    # Get intrinsics for deprojection (color stream)
-    color_stream = profile.get_stream(rs.stream.color).as_video_stream_profile()
-    intr = color_stream.get_intrinsics()  # rs.intrinsics
-    intr_dict = get_intrinsics_as_dict(intr)
+        # Align depth to color
+        align = rs.align(rs.stream.color)
 
-    # Prepare OpenCV camera matrix and dist coeffs
-    camera_matrix = np.array([
-        [intr_dict['fx'], 0, intr_dict['cx']],
-        [0, intr_dict['fy'], intr_dict['cy']],
-        [0, 0, 1]
-    ], dtype=np.float32)
-    dist_coeffs = np.array(intr_dict['disto'], dtype=np.float32)
+        # Get intrinsics for deprojection (color stream)
+        color_stream = profile.get_stream(rs.stream.color).as_video_stream_profile()
+        rs_intr = color_stream.get_intrinsics()  # rs.intrinsics
+        intr_dict = get_intrinsics_as_dict(rs_intr)
+
+        # Prepare OpenCV camera matrix and dist coeffs
+        camera_matrix = np.array([
+            [intr_dict['fx'], 0, intr_dict['cx']],
+            [0, intr_dict['fy'], intr_dict['cy']],
+            [0, 0, 1]
+        ], dtype=np.float32)
+        dist_coeffs = np.array(intr_dict['disto'], dtype=np.float32)
+    else:
+        # ---- Video Capture ----
+        if not os.path.exists(args.video_path):
+            print(f"Error: Video file {args.video_path} not found.")
+            return
+
+        cap = cv2.VideoCapture(args.video_path)
+        if not cap.isOpened():
+            print("Error: Could not open video.")
+            return
+            
+        # Load intrinsics
+        if args.intrinsics_json and os.path.exists(args.intrinsics_json):
+            with open(args.intrinsics_json, 'r') as f:
+                loaded_intr = json.load(f)
+                # Handle different formats if necessary
+                if isinstance(loaded_intr, list): loaded_intr = loaded_intr[0]
+                if "intrinsics" in loaded_intr: loaded_intr = loaded_intr["intrinsics"]
+                
+                fx = loaded_intr.get('fx', args.width)
+                fy = loaded_intr.get('fy', args.width)
+                cx = loaded_intr.get('ppx', loaded_intr.get('cx', args.width/2))
+                cy = loaded_intr.get('ppy', loaded_intr.get('cy', args.height/2))
+                coeffs = loaded_intr.get('coeffs', loaded_intr.get('disto', [0]*5))
+                
+                intr_dict = {
+                    "width": args.width, "height": args.height,
+                    "fx": fx, "fy": fy, "cx": cx, "cy": cy,
+                    "disto": coeffs
+                }
+        else:
+            print("Warning: No intrinsics JSON provided for video. Using defaults.")
+            intr_dict = {
+                "width": args.width, "height": args.height,
+                "fx": args.width, "fy": args.width, 
+                "cx": args.width/2, "cy": args.height/2,
+                "disto": [0.0]*5
+            }
+            
+        camera_matrix = np.array([
+            [intr_dict['fx'], 0, intr_dict['cx']],
+            [0, intr_dict['fy'], intr_dict['cy']],
+            [0, 0, 1]
+        ], dtype=np.float32)
+        dist_coeffs = np.array(intr_dict['disto'], dtype=np.float32)
 
     # ---- detector (replace this with your self.detector_hamer) ----
     # Initialize Wrapper
@@ -464,27 +581,38 @@ def main():
     # FPS counter
     last_t = time.time()
     fps = 0.0
+    frame_idx = 0
+    results_data = []
 
     print("[INFO] Press 'q' or ESC to quit.")
-    print("[INFO] Press 's' to save current frame (raw image).")
+    if use_realsense:
+        print("[INFO] Press 's' to save current frame (raw image).")
+    
     try:
         while True:
-            frames = pipeline.wait_for_frames()
-            aligned = align.process(frames)
+            depth_m = None
+            
+            if use_realsense:
+                frames = pipeline.wait_for_frames()
+                aligned = align.process(frames)
 
-            depth_frame = aligned.get_depth_frame()
-            color_frame = aligned.get_color_frame()
-            if not depth_frame or not color_frame:
-                continue
+                depth_frame = aligned.get_depth_frame()
+                color_frame = aligned.get_color_frame()
+                if not depth_frame or not color_frame:
+                    continue
 
-            color_img = np.asanyarray(color_frame.get_data())  # BGR
-            depth_raw = np.asanyarray(depth_frame.get_data()).astype(np.float32)  # uint16 -> float
-            depth_m = depth_raw * float(depth_scale)
-            # clip depth for robustness
-            depth_m[(depth_m <= 0.0) | (depth_m > args.max_depth_m)] = np.nan
+                color_img = np.asanyarray(color_frame.get_data())  # BGR
+                depth_raw = np.asanyarray(depth_frame.get_data()).astype(np.float32)  # uint16 -> float
+                depth_m = depth_raw * float(depth_scale)
+                # clip depth for robustness
+                depth_m[(depth_m <= 0.0) | (depth_m > args.max_depth_m)] = np.nan
+            else:
+                ret, color_img = cap.read()
+                if not ret:
+                    print("End of video.")
+                    break
 
             # ---- (2) hand keypoints detection ----
-            # kps_xy = detector.detect_hand_keypoints(color_img)
             hamer_out = detector_wrapper.detect_hand_keypoints(color_img)
             
             kps_xy = None
@@ -496,18 +624,59 @@ def main():
                 raw_pts3d = hamer_out['kpts_3d']
                 
                 # ---- (3) depth alignment -> 3D points ----
-                # pts3d, _depths = depth_alignment(kps_xy, depth_m, intr)
-                # Use ICP alignment
-                img_rgb = cv2.cvtColor(color_img, cv2.COLOR_BGR2RGB)
-                aligned_pts3d, _ = depth_alignment(hamer_out, depth_m, img_rgb, intr_dict, detector_wrapper.detector)
+                if depth_m is not None:
+                    img_rgb = cv2.cvtColor(color_img, cv2.COLOR_BGR2RGB)
+                    aligned_pts3d, _ = depth_alignment(hamer_out, depth_m, img_rgb, intr_dict, detector_wrapper.detector)
+                else:
+                    # No depth available, use raw prediction
+                    aligned_pts3d = raw_pts3d
 
-            # ---- (4) visualize 21 keypoints + 0,4,8 3D coords ----
+            # ---- (5) aruco detect ----
+            corners, ids = detect_aruco(color_img, aruco_dict, aruco_params, detector=aruco_detector)
+            
+            # ---- Save Data ----
+            frame_data = {
+                "frame_idx": frame_idx,
+                "timestamp": time.time(),
+                "hand": {},
+                "aruco": []
+            }
+            
+            if hamer_out is not None:
+                # Select source for 3D points (aligned preferred)
+                pts_source = aligned_pts3d if aligned_pts3d is not None else raw_pts3d
+                
+                if pts_source is not None:
+                    # Extract 0, 4, 8
+                    selected_indices = [0, 4, 8]
+                    selected_pts = pts_source[selected_indices]
+                    
+                    frame_data["hand"] = {
+                        "kpts_3d_0_4_8": selected_pts.tolist()
+                    }
+            
+            if ids is not None and len(ids) > 0:
+                # Estimate pose for saving
+                try:
+                    rvecs, tvecs, _ = my_estimatePoseSingleMarkers(corners, args.marker_length, camera_matrix, dist_coeffs)
+                    for i, marker_id in enumerate(ids.flatten()):
+                        # tvec is the center position in camera frame
+                        center_3d = tvecs[i].flatten().tolist()
+                        frame_data["aruco"].append({
+                            "id": int(marker_id),
+                            "center_3d": center_3d
+                        })
+                except Exception as e:
+                    print(f"Pose estimation failed for saving: {e}")
+            
+            results_data.append(frame_data)
+
+            # ---- Visualization ----
             vis = color_img.copy()
             vis, hand_info = draw_hand_overlay(vis, kps_xy, raw_pts3d=raw_pts3d, aligned_pts3d=aligned_pts3d, show_3d_indices=(0, 4, 8))
 
-            # ---- (5) aruco detect + label center + center 3D ----
-            corners, ids = detect_aruco(vis, aruco_dict, aruco_params, detector=aruco_detector)
-            vis, aruco_info = draw_aruco_overlay(vis, corners, ids, depth_m, intr, camera_matrix, dist_coeffs, args.marker_length)
+            # Draw ArUco
+            vis, aruco_info = draw_aruco_overlay(vis, corners, ids, depth_m, rs_intr, camera_matrix, dist_coeffs, args.marker_length)
 
             # ---- Draw Info Text at Top-Left ----
             y_offset = 30
@@ -535,19 +704,29 @@ def main():
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2, cv2.LINE_AA)
                 y_offset += 25
 
-            cv2.imshow("D435 Hand Keypoints + ArUco", vis)
+            cv2.imshow("Hand Keypoints + ArUco", vis)
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q') or key == 27:
                 break
-            elif key == ord('s'):
+            elif key == ord('s') and use_realsense:
                 timestamp = time.strftime("%Y%m%d_%H%M%S")
                 filename = f"frame_{timestamp}.png"
                 cv2.imwrite(filename, vis)
                 print(f"[INFO] Saved raw image to {filename}")
+            
+            frame_idx += 1
 
     finally:
-        pipeline.stop()
+        if use_realsense and pipeline:
+            pipeline.stop()
+        if cap:
+            cap.release()
         cv2.destroyAllWindows()
+        
+        if args.output_json:
+            with open(args.output_json, 'w') as f:
+                json.dump(results_data, f, indent=4)
+            print(f"[INFO] Saved results to {args.output_json}")
 
 
 if __name__ == "__main__":
