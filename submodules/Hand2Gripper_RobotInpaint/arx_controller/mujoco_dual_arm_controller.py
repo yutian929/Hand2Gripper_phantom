@@ -4,12 +4,13 @@ import numpy as np
 import time
 import os
 import cv2
+import json
 import bimanual
 from scipy.spatial.transform import Rotation as R
 
 # 特定补偿值
 FLANGE_MUJOCO_REAL_GAP = np.array([-0.02, -0.01, -0.066])
-FLANGE_GRIPPER_GAP = np.array([-0.1, 0.0, 0.0])  # Gripper to Flange offset
+FLANGE_GRIPPER_GAP = np.array([-0.16, 0.0, 0.0])  # Gripper to Flange offset
 
 class DualArmController:
     def __init__(self, xml_path, arm_names=None, end_effector_site_names=None, base_link_names=None, position_threshold=0.02):
@@ -325,76 +326,209 @@ class DualArmController:
 if __name__ == "__main__":
     current_dir = os.path.dirname(os.path.abspath(__file__))
     xml_path = os.path.join(current_dir, "R5", "R5a", "meshes", "dual_arm_scene.xml")
+    
+    aruco_pic = "/home/yutian/Hand2Gripper_phantom/data/raw/epic/0/frames/frame_0005.png"
+    calib_path_L = "/home/yutian/Hand2Gripper_phantom/phantom/camera/eye_to_hand_result_left_latest.json"
+    calib_path_R = "/home/yutian/Hand2Gripper_phantom/phantom/camera/eye_to_hand_result_right_latest.json"
+    
+    def load_calibration_matrix(json_path):
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+        return np.array(data["Mat_base_T_camera_link"])
+
     try:
-        # 初始化控制器
-        robot = DualArmController(xml_path)
-        
-        # -------------------------------------------------------------------
-        # 1. 定义动作关键帧 (Keyframes)
-        # 格式: [x, y, z, rx, ry, rz, gripper]
-        # rx, ry, rz 使用欧拉角 (rad)
-        # gripper: 0.044 (Open), 0.0 (Close)
-        # -------------------------------------------------------------------
-        # --- 左臂关键帧序列 ---
-        seqs_L = [
-            # 1. 准备 (高处, 张开)
-            [0.4,  0.0, 1.4, 0, 0, 0, 0.00],
-        ]
-        
-        # --- 右臂关键帧序列 ---
-        seqs_R = [
-            # 1. 准备 (高处, 张开) - Y是负的
-            [0.4,  -0.4, 1.4, 0, 0, 0, 0.00],
-        ]
+        # 1. Load Calibration
+        Mat_base_L_T_camera = load_calibration_matrix(calib_path_L)  # 左臂基座坐标下下相机的位姿
+        Mat_base_R_T_camera = load_calibration_matrix(calib_path_R)  # 右臂基座坐标下下相机的位姿
 
-        # -------------------------------------------------------------------
-        # 3. 生成相机轨迹 (简单的环绕或固定视角)
-        # -------------------------------------------------------------------
-        camera_poses = [
-            [0.0, -0.2, 2.0, 0.0, np.pi*0.25, 0.0],  # Frame 0
-        ]
+        # 2. Load Image
+        if not os.path.exists(aruco_pic):
+            raise FileNotFoundError(f"Image not found: {aruco_pic}")
+        img = cv2.imread(aruco_pic)
+        if img is None:
+            raise RuntimeError(f"Failed to read image: {aruco_pic}")
 
-        # -------------------------------------------------------------------
-        # 4. 执行并录制
-        # -------------------------------------------------------------------
-        print("Starting Simulation...")
-        rgb_frames, mask_frames = robot.move_trajectory_with_camera(
-            seqs_L, seqs_R, camera_poses, 
-            cam_name="camera"
-        )
+        # 3. Detect ArUco
+        aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
+        parameters = cv2.aruco.DetectorParameters()
+        if hasattr(cv2.aruco, "ArucoDetector"):
+            detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
+            corners, ids, _ = detector.detectMarkers(img)
+        else:
+            corners, ids, _ = cv2.aruco.detectMarkers(img, aruco_dict, parameters=parameters)
         
-        # -------------------------------------------------------------------
-        # 5. 播放结果
-        # -------------------------------------------------------------------
-        if len(rgb_frames) > 0:
-            print(f"Captured {len(rgb_frames)} frames. Playing back...")
+        target_pos_world = None
+        target_euler_world = None
+
+        if ids is not None:
+            cv2.aruco.drawDetectedMarkers(img, corners, ids)
             
-            # 随机颜色板用于 Mask 显示
-            np.random.seed(42)
-            color_palette = np.random.randint(0, 255, (256, 3), dtype=np.uint8)
-            color_palette[0] = [0, 0, 0]
+            # Camera Intrinsics (from provided JSON)
+            fx, fy = 606.0810546875, 605.1178588867188
+            cx, cy = 327.5788879394531, 245.88775634765625
+            camera_matrix = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=float)
+            dist_coeffs = np.zeros(5)
+            marker_length = 0.05  # 5cm
 
-            for i, (rgb, mask) in enumerate(zip(rgb_frames, mask_frames)):
-                # 转换 RGB -> BGR (OpenCV格式)
-                bgr_img = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-                
-                # 处理 Mask 颜色
-                geom_ids = mask[:, :, 0]
-                # 防止 id 越界
-                geom_ids[geom_ids >= 256] = 0
-                mask_vis = color_palette[geom_ids]
-                
-                # 在图片上显示帧数
-                cv2.putText(bgr_img, f"Frame: {i}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            # Transformation Matrix: Optical -> Camera Link
+            # Link X (Fwd) = Optical Z
+            # Link Y (Left) = -Optical X
+            # Link Z (Up) = -Optical Y
+            Mat_link_T_optical = np.array([
+                [0, 0, 1, 0],
+                [-1, 0, 0, 0],
+                [0, -1, 0, 0],
+                [0, 0, 0, 1]
+            ])
 
-                cv2.imshow("Dual Arm RGB", bgr_img)
-                cv2.imshow("Segmentation Mask", mask_vis)
+            # Estimate Pose using solvePnP (compatible with new OpenCV)
+            half_size = marker_length / 2.0
+            # Marker corners in object frame (Top-Left, Top-Right, Bottom-Right, Bottom-Left)
+            obj_points = np.array([
+                [-half_size, half_size, 0],
+                [half_size, half_size, 0],
+                [half_size, -half_size, 0],
+                [-half_size, -half_size, 0]
+            ], dtype=np.float32)
+
+            for i in range(len(ids)):
+                success, rvec, tvec = cv2.solvePnP(obj_points, corners[i], camera_matrix, dist_coeffs)
                 
-                # 每帧显示 50ms，产生约 20fps 的动画效果
-                key = cv2.waitKey(0)
-                if key == 27: # ESC 退出
-                    break
+                if success:
+                    # Draw Axis (in Optical Frame for visualization on image)
+                    cv2.drawFrameAxes(img, camera_matrix, dist_coeffs, rvec, tvec, marker_length)
+                    
+                    # Draw Center Point
+                    c = corners[i][0]
+                    center_x = int(np.mean(c[:, 0]))
+                    center_y = int(np.mean(c[:, 1]))
+                    cv2.circle(img, (center_x, center_y), 5, (0, 255, 255), -1)
+                    
+                    # --- Calculate Full Pose in World Frame ---
+                    
+                    # 1. T_optical_marker
+                    R_opt_marker, _ = cv2.Rodrigues(rvec)
+                    T_opt_marker = np.eye(4)
+                    T_opt_marker[:3, :3] = R_opt_marker
+                    T_opt_marker[:3, 3] = tvec.flatten()
+                    
+                    # 2. T_world_baseL (Base L is at 0,0,1.0)
+                    T_world_baseL = np.eye(4)
+                    T_world_baseL[:3, 3] = [0.0, 0.2, 1.0]
+                    
+                    # 3. Chain: World -> BaseL -> CamLink -> CamOpt -> Marker
+                    # T_world_marker = T_world_baseL @ T_baseL_camLink @ T_camLink_camOpt @ T_opt_marker
+                    T_world_marker = T_world_baseL @ Mat_base_L_T_camera @ Mat_link_T_optical @ T_opt_marker
+                    
+                    pos_world = T_world_marker[:3, 3]
+                    
+                    # Extract Euler Angles (xyz)
+                    r_world = R.from_matrix(T_world_marker[:3, :3])
+                    euler_world = r_world.as_euler('xyz', degrees=False)
+                    
+                    # Store the first marker position/orientation as target
+                    if target_pos_world is None:
+                        target_pos_world = pos_world
+                        target_euler_world = euler_world
+
+                    text = f"ID:{ids[i][0]} World:({pos_world[0]:.2f}, {pos_world[1]:.2f}, {pos_world[2]:.2f})"
+                    cv2.putText(img, text, (center_x + 10, center_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+        cv2.imshow("Detected Markers", img)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+        
+        if target_pos_world is not None:
+            print(f"Target World Position: {target_pos_world}")
+            print(f"Target World Euler (rad): {target_euler_world}")
             
-            cv2.destroyAllWindows()
+            # Initialize Robot
+            robot = DualArmController(xml_path)
+            
+            # --- Calculate Camera Pose in World Frame ---
+            def pose_to_matrix(pose):
+                t = pose[:3]
+                euler = pose[3:]
+                r = R.from_euler('xyz', euler, degrees=False)
+                mat = np.eye(4)
+                mat[:3, :3] = r.as_matrix()
+                mat[:3, 3] = t
+                return mat
+
+            def matrix_to_pose(mat):
+                t = mat[:3, 3]
+                rot_mat = mat[:3, :3]
+                r = R.from_matrix(rot_mat)
+                euler = r.as_euler('xyz', degrees=False)
+                return np.concatenate([t, euler])
+
+            # Get Base Poses in World Frame
+            pose_base_L = robot._get_base_pose_world("L")
+            pose_base_R = robot._get_base_pose_world("R")
+            T_W_BL = pose_to_matrix(pose_base_L)
+            T_W_BR = pose_to_matrix(pose_base_R)
+
+            # Calculate Camera Pose (Camera Link Frame) in World Frame
+            T_W_C_L = T_W_BL @ Mat_base_L_T_camera
+            T_W_C_R = T_W_BR @ Mat_base_R_T_camera
+
+            # Check Consistency
+            diff_t = np.linalg.norm(T_W_C_L[:3, 3] - T_W_C_R[:3, 3])
+            print(f"Camera World Pos from L: {T_W_C_L[:3, 3]}")
+            print(f"Camera World Pos from R: {T_W_C_R[:3, 3]}")
+            print(f"Camera Position Discrepancy: {diff_t:.4f} m")
+
+            if diff_t > 0.05: # 5cm threshold
+                print("[Warning] Large discrepancy in camera pose calculation!")
+            
+            # Use Left result for simulation camera
+            cam_pose_world = matrix_to_pose(T_W_C_L)
+            camera_poses = [cam_pose_world]
+            
+            # Apply Gripper Offset to get Flange Target
+            # Target is marker position, we want gripper to be there.
+            # Flange = Marker + FLANGE_GRIPPER_GAP
+            flange_target_pos = target_pos_world + FLANGE_GRIPPER_GAP
+            
+            # Define Pose: [x, y, z, r, p, y, gripper]
+            # Orientation: Use detected marker orientation
+            # Gripper: 0.044 (Open)
+            target_pose = np.concatenate([flange_target_pos, target_euler_world, [0.044]])
+            
+            seqs_L = [target_pose]
+            seqs_R = [target_pose]
+            
+            print("Moving arms to ArUco marker...")
+            
+            # Get image dimensions for rendering
+            h, w = img.shape[:2]
+            
+            rgb_frames, mask_frames = robot.move_trajectory_with_camera(seqs_L, seqs_R, camera_poses, width=w, height=h)
+            
+            if len(rgb_frames) > 0:
+                print("Overlaying simulation result on original image...")
+                # Use the last frame
+                rgb_sim = rgb_frames[-1]
+                mask_sim = mask_frames[-1]
+                
+                # Convert RGB to BGR for OpenCV
+                bgr_sim = cv2.cvtColor(rgb_sim, cv2.COLOR_RGB2BGR)
+                
+                # Create mask (assuming ID > 0 is robot/objects, 0 is background)
+                geom_ids = mask_sim[:, :, 0]
+                mask_bool = geom_ids > 0
+                
+                # Overlay
+                blended = img.copy()
+                blended[mask_bool] = bgr_sim[mask_bool]
+                
+                cv2.imshow("Simulation Overlay", blended)
+                cv2.waitKey(0)
+                cv2.destroyAllWindows()
+
+        else:
+            print("No ArUco marker detected to move to.")
+
     except Exception as e:
         print(f"[Error] {e}")
+        exit(1)

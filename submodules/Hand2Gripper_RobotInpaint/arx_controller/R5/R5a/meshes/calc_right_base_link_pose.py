@@ -34,7 +34,7 @@ def main():
 
     # World Frame: Left Base is at (0, 0, 1.0) with Identity rotation
     T_W_LB = np.eye(4)
-    T_W_LB[:3, 3] = [0.0, 0.0, 1.0]
+    T_W_LB[:3, 3] = [0.0, 0.2, 1.0]
 
     # T_W_RB = T_W_LB @ T_LB_RB
     T_W_RB = T_W_LB @ T_LB_RB

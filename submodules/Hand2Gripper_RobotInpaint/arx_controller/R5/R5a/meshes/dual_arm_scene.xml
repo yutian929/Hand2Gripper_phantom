@@ -32,7 +32,7 @@
 
     <camera name="camera" pos="0 0 1.0" euler="0 0 0"/>
     
-    <body name="base_link_L" pos="0 0 1.0">
+    <body name="base_link_L" pos="0 0.2 1.0">
       <geom type="mesh" rgba="0.898 0.917 0.929 1" mesh="base_link"/>
       <body name="link1_L" pos="0 0 0.0565">
         <inertial pos="0.0050395 -0.0077407 0.020897" quat="0.632157 0.714526 -0.263733 0.142391" mass="0.096804" diaginertia="0.000118945 9.40205e-05 4.70346e-05"/>
@@ -80,7 +80,7 @@
     </body>
     
     <!-- Run calc_right_base_link_pose.py to get the correct pos and quat for base_link_R -->
-    <body name="base_link_R" pos="-0.0155 -0.4200 1.0448" quat="0.9970 -0.0533 0.0558 0.0056">
+    <body name="base_link_R" pos="-0.0155 -0.2200 1.0448" quat="0.9970 -0.0533 0.0558 0.0056">
       <geom type="mesh" rgba="0.898 0.917 0.929 1" mesh="base_link"/>
       <body name="link1_R" pos="0 0 0.0565">
         <inertial pos="0.0050395 -0.0077407 0.020897" quat="0.632157 0.714526 -0.263733 0.142391" mass="0.096804" diaginertia="0.000118945 9.40205e-05 4.70346e-05"/>
