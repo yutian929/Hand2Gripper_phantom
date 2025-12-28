@@ -56,6 +56,8 @@ class BaseProcessor:
         self.eye_to_hand_left = getattr(cfg, 'eye_to_hand_left', None)
         self.eye_to_hand_right = getattr(cfg, 'eye_to_hand_right', None)
         self.hand_model = getattr(cfg, 'hand_model', 'hamer')  # Default to 'hamer' if not specified
+        self.xml_path = getattr(cfg, 'xml_path', None)
+        self.camera_intrinsics = getattr(cfg, 'camera_intrinsics', None)
         # <<< Hand2Gripper <<< #
         
         # Apply bimanual setup logic

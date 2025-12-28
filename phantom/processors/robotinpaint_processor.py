@@ -160,8 +160,8 @@ class RobotInpaintProcessor(BaseProcessor):
     def process_one_demo(self, data_sub_folder: str) -> None:
         """
         Process a single demonstration.
-        - Visuals: Uses DualArmController with (N,7) input [Pose + Width].
-        - Sequence: Uses Standard Raw Data (DeepSeek Logic) for correct labeling.
+        - Visuals: Uses Real2Sim with single-arm rendering for each arm.
+        - Sequence: Uses Standard Raw Data for correct labeling.
         """
         save_folder = self.get_save_folder(data_sub_folder)
         if self._should_skip_processing(save_folder):
@@ -180,27 +180,15 @@ class RobotInpaintProcessor(BaseProcessor):
                 import mediapy as media
                 from scipy.spatial.transform import Rotation as R
                 
-                # [关键] 使用你指定的带 ee_width 的控制器
-                from hand2gripper_robot_inpaint.arx_controller.mujoco_dual_arm_controller import DualArmController, FLANGE_GRIPPER_GAP
-                from hand2gripper_robot_inpaint.arx_controller.test_dual_arm import load_and_transform_data, pose_to_matrix, matrix_to_pose, load_calibration_matrix
-
-                # 1. 初始化仿真
-                xml_path_str = "/home/yutian/Hand2Gripper_phantom/submodules/Hand2Gripper_RobotInpaint/arx_controller/R5/R5a/meshes/dual_arm_scene.xml"
-                if not os.path.exists(xml_path_str):
-                    print(f"Error: XML not found at {xml_path_str}")
-                    return
+                # 使用 fucking_arx_mujoco 的模块
+                from fucking_arx_mujoco.real.camera.camera_utils import load_camera_intrinsics, load_eye_to_hand_matrix, T_optical_to_link
+                from fucking_arx_mujoco.real2sim import Real2Sim
                 
-                dual_robot = DualArmController(xml_path_str)
-
-                # 2. 准备渲染用的轨迹数据 (Pose 6D)
-                # -------------------------------------
-                # 定义相机与基座的变换
-                Mat_base_L_T_camera = load_calibration_matrix(self.eye_to_hand_left)
-                Mat_base_R_T_camera = load_calibration_matrix(self.eye_to_hand_right)
-                Mat_world_T_base_L = pose_to_matrix(dual_robot._get_base_pose_world("L"))
-                Mat_world_T_base_R = pose_to_matrix(dual_robot._get_base_pose_world("R"))
+                # 1. 加载相机参数和手眼标定矩阵
+                T_flange_init_camlink_L = load_eye_to_hand_matrix(self.eye_to_hand_left)
+                T_flange_init_camlink_R = load_eye_to_hand_matrix(self.eye_to_hand_right)
                 
-                # 加载轨迹
+                # 2. 加载轨迹数据
                 path_l = str(paths.actions_left)
                 path_r = str(paths.actions_right)
                 if not os.path.exists(path_l):
@@ -216,123 +204,152 @@ class RobotInpaintProcessor(BaseProcessor):
                 if not os.path.exists(path_l):
                     path_l = path_l.replace(".npz", "_shoulders.npz")
                     path_r = path_r.replace(".npz", "_shoulders.npz")
-                
-                # 读取并转换轨迹
+
+                # 辅助函数：将 pose (6D) 转换为 4x4 矩阵
+                def pose_to_matrix(pose: np.ndarray) -> np.ndarray:
+                    """将 [x, y, z, rx, ry, rz] 转换为 4x4 变换矩阵"""
+                    T = np.eye(4)
+                    T[:3, 3] = pose[:3]
+                    T[:3, :3] = R.from_euler('xyz', pose[3:6]).as_matrix()
+                    return T
+
+                def matrix_to_pose(T: np.ndarray) -> np.ndarray:
+                    """将 4x4 变换矩阵转换为 [x, y, z, rx, ry, rz]"""
+                    pos = T[:3, 3]
+                    euler = R.from_matrix(T[:3, :3]).as_euler('xyz')
+                    return np.concatenate([pos, euler])
+
+                # 读取并转换轨迹 (相机光学坐标系下的 6D pose)
                 try:
-                    seqs_L_cam = load_and_transform_data(path_l)
-                    seqs_R_cam = load_and_transform_data(path_r)
-                except:
-                    # Fallback B-Format
                     data_L = np.load(path_l)
                     data_R = np.load(path_r)
-                    def convert_b_to_euler(ee_pts, ee_oris):
-                        seqs = []
-                        for i in range(len(ee_pts)):
-                            r = R.from_matrix(ee_oris[i])
-                            euler = r.as_euler('xyz', degrees=False)
-                            seqs.append(np.concatenate([ee_pts[i], euler]))
-                        return np.array(seqs)
-                    seqs_L_cam = convert_b_to_euler(data_L["ee_pts"], data_L["ee_oris"])
-                    seqs_R_cam = convert_b_to_euler(data_R["ee_pts"], data_R["ee_oris"])
+                    # 尝试读取 ee_pts 和 ee_oris 格式
+                    if "ee_pts" in data_L and "ee_oris" in data_L:
+                        def convert_to_matrix(ee_pts, ee_oris):
+                            T_list = []
+                            for i in range(len(ee_pts)):
+                                T = np.eye(4)
+                                T[:3, 3] = ee_pts[i]
+                                T[:3, :3] = ee_oris[i]
+                                T_list.append(T)
+                            return T_list
+                        T_cam_ee_L_list = convert_to_matrix(data_L["ee_pts"], data_L["ee_oris"])
+                        T_cam_ee_R_list = convert_to_matrix(data_R["ee_pts"], data_R["ee_oris"])
+                    else:
+                        # 尝试其他格式
+                        seqs_L_cam = data_L["poses"] if "poses" in data_L else data_L["trajectory"]
+                        seqs_R_cam = data_R["poses"] if "poses" in data_R else data_R["trajectory"]
+                        T_cam_ee_L_list = [pose_to_matrix(p) for p in seqs_L_cam]
+                        T_cam_ee_R_list = [pose_to_matrix(p) for p in seqs_R_cam]
+                    # === 新增: optical -> link 坐标系转换 ===
+                    T_opt2link = T_optical_to_link()
+                    T_cam_ee_L_list = [T_opt2link @ T for T in T_cam_ee_L_list]
+                    T_cam_ee_R_list = [T_opt2link @ T for T in T_cam_ee_R_list]
+                except Exception as e:
+                    print(f"Error loading trajectory data: {e}")
+                    return
 
-                # 计算 World 坐标 (N, 6)
-                Mat_cam_T_seqs_L = np.array([pose_to_matrix(p) for p in seqs_L_cam])
-                Mat_cam_T_seqs_R = np.array([pose_to_matrix(p) for p in seqs_R_cam])
-                Mat_base_L_T_seqs_L = Mat_base_L_T_camera @ Mat_cam_T_seqs_L  # 最终保存的
-                Mat_base_R_T_seqs_R = Mat_base_R_T_camera @ Mat_cam_T_seqs_R
-                np.save(str(paths.hand2gripper_train_base_L_T_ee_L), Mat_base_L_T_seqs_L)
-                np.save(str(paths.hand2gripper_train_base_R_T_ee_R), Mat_base_R_T_seqs_R)
-                # vis_matrix_list(Mat_base_L_T_seqs_L, interval=10, title="Left Arm Trajectory in Base Frame")
-                # vis_matrix_list(Mat_base_R_T_seqs_R, interval=10, title="Right Arm Trajectory in Base Frame")
-                Mat_world_T_seqs_L = Mat_world_T_base_L @ Mat_base_L_T_seqs_L
-                Mat_world_T_seqs_R = Mat_world_T_base_R @ Mat_base_R_T_seqs_R
-                seqs_L_in_world_6d = np.array([matrix_to_pose(m) for m in Mat_world_T_seqs_L])
-                seqs_R_in_world_6d = np.array([matrix_to_pose(m) for m in Mat_world_T_seqs_R])
-
-                Mat_world_T_camera_L = Mat_world_T_base_L @ Mat_base_L_T_camera
-                Mat_world_T_camera_R = Mat_world_T_base_R @ Mat_base_R_T_camera
-                # vis_matrix_list(Mat_cam_T_seqs_L, interval=10, title="Left Arm Trajectory in Camera Frame")
-                # vis_matrix_list(Mat_world_T_seqs_L, interval=10, title="Left Arm Trajectory in World Frame")
-                # vis_matrix_list(Mat_cam_T_seqs_R, interval=10, title="Right Arm Trajectory in Camera Frame")
-                # vis_matrix_list(Mat_world_T_seqs_R, interval=10, title="Right Arm Trajectory in World Frame")
-                # Check consistency: XYZ < 2cm, Rotation < 5 deg
-                pos_diff = np.linalg.norm(Mat_world_T_camera_L[:3, 3] - Mat_world_T_camera_R[:3, 3])
+                # 3. 转换到 flange_init 坐标系 (用于保存训练数据)
+                # T_flange_init_ee = T_flange_init_camlink @ T_camlink_ee
+                # 注意：这里 T_cam_ee 实际上是 T_camlink_ee (相机link坐标系)
+                T_flange_init_ee_L_list = [T_flange_init_camlink_L @ T for T in T_cam_ee_L_list]
+                T_flange_init_ee_R_list = [T_flange_init_camlink_R @ T for T in T_cam_ee_R_list]
                 
-                R_L = Mat_world_T_camera_L[:3, :3]
-                R_R = Mat_world_T_camera_R[:3, :3]
-                rot_diff_angle = np.linalg.norm(R.from_matrix(R_L.T @ R_R).as_rotvec())
+                # 保存 flange_init 坐标系下的轨迹 (用于训练)
+                np.save(str(paths.hand2gripper_train_base_L_T_ee_L), np.array(T_flange_init_ee_L_list))
+                np.save(str(paths.hand2gripper_train_base_R_T_ee_R), np.array(T_flange_init_ee_R_list))
 
-                print(f"[Camera Check] Pos Diff: {pos_diff:.4f}m, Rot Diff: {np.degrees(rot_diff_angle):.2f} deg")
-
-                POS_THRESHOLD = 0.05  # 5cm
-                ROT_THRESHOLD = np.pi * 10.0 / 180.0  # 10 degrees
-
-                if pos_diff > POS_THRESHOLD or rot_diff_angle > ROT_THRESHOLD:
-                    raise AssertionError(f"Camera world transforms from two arms differ significantly! "
-                                         f"Pos Diff: {pos_diff:.4f} > {POS_THRESHOLD}, "
-                                         f"Rot Diff: {np.degrees(rot_diff_angle):.2f} > 6 deg")
-
-                camera_poses_world = np.array([matrix_to_pose(Mat_world_T_camera_L) for _ in range(len(seqs_L_in_world_6d))])
-                seqs_L_in_world_6d[:, :3] += FLANGE_GRIPPER_GAP
-                seqs_R_in_world_6d[:, :3] += FLANGE_GRIPPER_GAP
-
-                # 3. 准备夹爪数据 (Width 1D)
-                # -------------------------------------
+                # 4. 加载视频和夹爪数据
+                rgbs_inpaint = media.read_video(str(paths.video_human_inpaint))
+                rgbs_inpaint = rgbs_inpaint[frame_indices]
+                
                 # 加载标准数据以获取 gripper widths
                 print("Loading gripper widths...")
                 data_standard = self._load_data(paths)
-                _, gripper_widths = self._process_gripper_widths(paths, data_standard)
+                gripper_actions, gripper_widths = self._process_gripper_widths(paths, data_standard)
                 
-                width_L = gripper_widths['left']  # 最终要保存的
+                width_L = gripper_widths['left']
                 width_R = gripper_widths['right']
                 np.save(str(paths.hand2gripper_train_gripper_width_left), width_L)
                 np.save(str(paths.hand2gripper_train_gripper_width_right), width_R)
 
-                # 4. 数据合并与对齐 (6D + 1D -> 7D)
-                # -------------------------------------
-                rgbs_inpaint = media.read_video(str(paths.video_human_inpaint))
-                rgbs_inpaint = rgbs_inpaint[frame_indices]
-                assert len(frame_indices) == len(rgbs_inpaint) == len(width_L) == len(seqs_L_in_world_6d), \
-                    f"Data length mismatch! Video: {len(rgbs_inpaint)}, Width L: {len(width_L)}, Seq L: {len(seqs_L_in_world_6d)}"
-                assert len(frame_indices) == len(rgbs_inpaint) == len(width_R) == len(seqs_R_in_world_6d), \
-                    f"Data length mismatch! Video: {len(rgbs_inpaint)}, Width R: {len(width_R)}, Seq R: {len(seqs_R_in_world_6d)}"
-                                
-                # [关键步骤] 拼接成 (N, 7)
-                seqs_L_in_world_7d = np.hstack([seqs_L_in_world_6d, width_L.reshape(-1, 1)])
-                seqs_R_in_world_7d = np.hstack([seqs_R_in_world_6d, width_R.reshape(-1, 1)])
-                cam_poses = camera_poses_world
+                # 验证数据长度一致
+                num_frames = len(frame_indices)
+                assert len(rgbs_inpaint) == num_frames, f"Video frames mismatch: {len(rgbs_inpaint)} vs {num_frames}"
+                assert len(T_cam_ee_L_list) == num_frames, f"Left trajectory mismatch: {len(T_cam_ee_L_list)} vs {num_frames}"
+                assert len(T_cam_ee_R_list) == num_frames, f"Right trajectory mismatch: {len(T_cam_ee_R_list)} vs {num_frames}"
+                assert len(width_L) == num_frames, f"Left gripper width mismatch: {len(width_L)} vs {num_frames}"
 
-                # 5. 执行仿真
-                # -------------------------------------
-                sim_frames, sim_masks = dual_robot.move_trajectory_with_camera(
-                    seqs_L_in_world_7d, 
-                    seqs_R_in_world_7d, 
-                    cam_poses, 
-                    cam_name="camera", width=640, height=480
+                # 5. 创建 Real2Sim 渲染器 (左臂和右臂各一个)
+                sample_img = rgbs_inpaint[0]
+                img_h, img_w = sample_img.shape[:2]
+                
+                # 获取相机 fov
+                _, _, _, v_fov = load_camera_intrinsics(self.camera_intrinsics)
+                
+                # XML 路径 (单臂模型)
+                xml_path_L = getattr(self, 'xml_path', "/home/yutian/Hand2Gripper_phantom/submodules/Fucking_Arx_Mujoco/SDK/R5a/meshes/R5a_R5master.xml")
+                xml_path_R = getattr(self, 'xml_path', "/home/yutian/Hand2Gripper_phantom/submodules/Fucking_Arx_Mujoco/SDK/R5a/meshes/R5a_R5master.xml")
+                
+                print(f"[INFO] 初始化左臂 Real2Sim: {xml_path_L}")
+                r2s_L = Real2Sim(
+                    xml_path=xml_path_L,
+                    T_flange_init_camlink=T_flange_init_camlink_L,
+                    width=img_w,
+                    height=img_h,
+                    fov=v_fov,
+                    verbose=False
+                )
+                
+                print(f"[INFO] 初始化右臂 Real2Sim: {xml_path_R}")
+                r2s_R = Real2Sim(
+                    xml_path=xml_path_R,
+                    T_flange_init_camlink=T_flange_init_camlink_R,
+                    width=img_w,
+                    height=img_h,
+                    fov=v_fov,
+                    verbose=False
                 )
 
-                if len(sim_frames) == 0: return
-
-                # 6. 生成 Sequence (使用原始标准数据)
-                # -------------------------------------
-                # 这一步使用 data_standard，它是原始的、未经 world 变换的数据，用于训练标签
-                gripper_actions, _ = self._process_gripper_widths(paths, data_standard)
+                # 6. 批量渲染
+                print("[INFO] 渲染左臂轨迹...")
+                results_L = r2s_L.render_batch(T_camlink_ee_list=T_cam_ee_L_list, gripper_widths=width_L, is_gripper_pose=True, show_progress=True)
+                print(f"[INFO] 左臂渲染完成，IK失败: {sum(1 for r in results_L if not r.ik_success)}/{len(results_L)}")
                 
+                print("[INFO] 渲染右臂轨迹...")
+                results_R = r2s_R.render_batch(T_camlink_ee_list=T_cam_ee_R_list, gripper_widths=width_R, is_gripper_pose=True, show_progress=True)
+                print(f"[INFO] 右臂渲染完成，IK失败: {sum(1 for r in results_R if not r.ik_success)}/{len(results_R)}")
+                
+                # 7. 合成图像并生成 Sequence
                 sequence = TrainingDataSequence()
 
-                for idx in range(len(rgbs_inpaint)):
-                    # --- A. 视频合成 ---
+                for idx in tqdm(range(num_frames), desc="Compositing frames"):
                     rgb_h = rgbs_inpaint[idx]
-                    rgb_s = sim_frames[idx]
-                    mask_s = sim_masks[idx]
+                    res_L = results_L[idx]
+                    res_R = results_R[idx]
 
-                    if rgb_s.shape[:2] != rgb_h.shape[:2]:
-                        rgb_s = cv2.resize(rgb_s, (rgb_h.shape[1], rgb_h.shape[0]))
-                        mask_s = cv2.resize(mask_s, (rgb_h.shape[1], rgb_h.shape[0]), interpolation=cv2.INTER_NEAREST)
-
+                    # 合成：先叠加右臂，再叠加左臂（或根据深度排序）
                     blended = rgb_h.copy()
-                    blended[mask_s[:, :, 0] > 0] = rgb_s[mask_s[:, :, 0] > 0]
                     
+                    # 叠加右臂
+                    if res_R.ik_success:
+                        rgb_R = res_R.rgb
+                        mask_R = res_R.mask
+                        if rgb_R.shape[:2] != rgb_h.shape[:2]:
+                            rgb_R = cv2.resize(rgb_R, (rgb_h.shape[1], rgb_h.shape[0]))
+                            mask_R = cv2.resize(mask_R, (rgb_h.shape[1], rgb_h.shape[0]), interpolation=cv2.INTER_NEAREST)
+                        blended[mask_R > 0] = rgb_R[mask_R > 0]
+                    
+                    # 叠加左臂
+                    if res_L.ik_success:
+                        rgb_L = res_L.rgb
+                        mask_L = res_L.mask
+                        if rgb_L.shape[:2] != rgb_h.shape[:2]:
+                            rgb_L = cv2.resize(rgb_L, (rgb_h.shape[1], rgb_h.shape[0]))
+                            mask_L = cv2.resize(mask_L, (rgb_h.shape[1], rgb_h.shape[0]), interpolation=cv2.INTER_NEAREST)
+                        blended[mask_L > 0] = rgb_L[mask_L > 0]
+
+                    # Square crop 和 resize
                     if self.square and self.output_resolution > 0:
                         h, w = blended.shape[:2]
                         if h > w:
@@ -343,8 +360,10 @@ class RobotInpaintProcessor(BaseProcessor):
                             blended = blended[:, start:start+h]
                         if blended.shape[0] != self.output_resolution:
                             blended = cv2.resize(blended, (self.output_resolution, self.output_resolution))
+                    
                     img_overlay.append(blended)
-                    # --- B. Sequence 填充 (Label) ---
+
+                    # 生成 Sequence (Label)
                     try:
                         left_state = self._get_robot_state(
                             data_standard['ee_pts_left'][idx], 
@@ -359,7 +378,6 @@ class RobotInpaintProcessor(BaseProcessor):
                         
                         sequence.add_frame(TrainingData(
                             frame_idx=idx, valid=True,
-                            
                             action_pos_left=left_state.pos, 
                             action_orixyzw_left=left_state.ori_xyzw,
                             action_pos_right=right_state.pos, 
@@ -369,8 +387,13 @@ class RobotInpaintProcessor(BaseProcessor):
                             gripper_width_left=gripper_widths['left'][idx], 
                             gripper_width_right=gripper_widths['right'][idx],
                         ))
-                    except:
+                    except Exception as e:
+                        print(f"Warning: Failed to create training data for frame {idx}: {e}")
                         sequence.add_frame(TrainingData.create_empty_frame(idx))
+
+                # 清理资源
+                del r2s_L
+                del r2s_R
 
             except Exception as e:
                 print(f"Error during Arx5 processing: {e}")
@@ -392,8 +415,6 @@ class RobotInpaintProcessor(BaseProcessor):
             self._save_results(paths, sequence, img_overlay, img_birdview)
         else:
             print("Warning: No data generated to save.")
-
-
 
     def _process_frames(self, images: Dict[str, np.ndarray], data: Dict[str, np.ndarray],
                        gripper_actions: Dict[str, np.ndarray], gripper_widths: Dict[str, np.ndarray]) -> Tuple[TrainingDataSequence, List[np.ndarray], Optional[List[np.ndarray]]]:

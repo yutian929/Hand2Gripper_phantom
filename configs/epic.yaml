@@ -29,6 +29,7 @@ my_robo: true
 # my_robo: false
 eye_to_hand_left: "camera/eye_to_hand_result_left_latest.json"
 eye_to_hand_right: "camera/eye_to_hand_result_right_latest.json"
+xml_path: "../submodules/Fucking_Arx_Mujoco/SDK/R5a/meshes/R5a_R5master.xml"
 # <<< Hand2Gripper <<<
 gripper: "Robotiq85"
 square: false
@@ -38,5 +39,5 @@ target_hand: "both"
 constrained_hand: false
 depth_for_overlay: true
 render: false
-camera_intrinsics: "camera/camera_intrinsics_d435.json"
+camera_intrinsics: "camera/camera_intrinsics_d435i.json"
 camera_extrinsics: "camera/camera_extrinsics_ego_bimanual_shoulders_ur5e.json"
