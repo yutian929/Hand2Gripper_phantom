@@ -632,8 +632,12 @@ def test_wilor_hand_pose3d_estimation_pipeline_hand_detection():
     # xyxy: tensor([[ 638.,  732.,  882., 1035.]], device='cuda:0')
     # xyxyn: tensor([[0.3323, 0.6778, 0.4594, 0.9583]], device='cuda:0')
 
+def test_fucking_arx_mujoco():
+    from fucking_arx_mujoco.real2sim import Real2Sim
+    pass
 
 if __name__ == "__main__":
     # test_robo_suite()
     # test_hand2gripper_robot_inpaint_arx_controller()
-    test_real_dual_arm_controller()
+    # test_real_dual_arm_controller()
+    test_fucking_arx_mujoco()
