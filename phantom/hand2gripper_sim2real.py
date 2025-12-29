@@ -35,16 +35,12 @@ def main():
     LEFT_WIDTH = os.path.join(DATA_DIR, "inpaint_processor", "hand2gripper_train_gripper_width_left.npy")
     RIGHT_WIDTH = os.path.join(DATA_DIR, "inpaint_processor", "hand2gripper_train_gripper_width_right.npy")
     OVERLAY_VIDEO = os.path.join(DATA_DIR, "video_overlay_Arx5_shoulders.mkv")
-    INTRINSICS_PATH = "/home/yutian/Hand2Gripper_phantom/submodules/Fucking_Arx_Mujoco/real/camera/camera_intrinsics_d435i.json"
-    EYE_TO_HAND_LEFT = "/home/yutian/Hand2Gripper_phantom/submodules/Fucking_Arx_Mujoco/real/camera/eye_to_hand_result_left_latest.json"
-    EYE_TO_HAND_RIGHT = "/home/yutian/Hand2Gripper_phantom/submodules/Fucking_Arx_Mujoco/real/camera/eye_to_hand_result_right_latest.json"
-    XML_PATH = "/home/yutian/Hand2Gripper_phantom/submodules/Fucking_Arx_Mujoco/SDK/R5a/meshes/R5a_R5master.xml"
-    USE_REAL_ARM = True
+
     CAN_PORT_LEFT = "can1"
     CAN_PORT_RIGHT = "can3"
     MAX_VEL, MAX_ACC = 100, 300
     EE_POSE_L_BIAS = np.array([0, 0, 0, 0, 0, 0, 0])
-    EE_POSE_R_BIAS = np.array([0, 0, 0.05, 0, 0, 0, 0])
+    EE_POSE_R_BIAS = np.array([0, 0, 0.07, 0, 0, 0, 0])
 
     # 加载轨迹和夹爪宽度
     T_ee_L_list, gripper_L = load_traj_and_widths(LEFT_TRAJ, LEFT_WIDTH)
@@ -57,12 +53,11 @@ def main():
 
     # 初始化真实机械臂
     real_arm_L = real_arm_R = None
-    if USE_REAL_ARM:
-        print(f"[INFO] 连接左臂: {CAN_PORT_LEFT}")
-        real_arm_L = RealSingleArm(can_port=CAN_PORT_LEFT, max_velocity=MAX_VEL, max_acceleration=MAX_ACC)
-        print(f"[INFO] 连接右臂: {CAN_PORT_RIGHT}")
-        real_arm_R = RealSingleArm(can_port=CAN_PORT_RIGHT, max_velocity=MAX_VEL, max_acceleration=MAX_ACC)
-        time.sleep(1)
+    print(f"[INFO] 连接左臂: {CAN_PORT_LEFT}")
+    real_arm_L = RealSingleArm(can_port=CAN_PORT_LEFT, max_velocity=MAX_VEL, max_acceleration=MAX_ACC)
+    print(f"[INFO] 连接右臂: {CAN_PORT_RIGHT}")
+    real_arm_R = RealSingleArm(can_port=CAN_PORT_RIGHT, max_velocity=MAX_VEL, max_acceleration=MAX_ACC)
+    time.sleep(1)
 
     # 可视化与联动
     print("[INFO] 操作: q=退出, 空格=暂停, a/d=前后帧, r=执行当前帧, h=回零")
@@ -87,7 +82,7 @@ def main():
                     (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 200, 0), 1)
         cv2.putText(overlay, f"R7D: [{', '.join(f'{v:.3f}' for v in pose7d_R)}]", 
                     (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 200, 0), 1)
-        cv2.putText(overlay, f"{'PAUSED' if paused else 'RUNNING'} | Real:{'ON' if USE_REAL_ARM else 'OFF'}", 
+        cv2.putText(overlay, f"{'PAUSED' if paused else 'RUNNING'}", 
                     (10, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
         cv2.imshow("Sim2Real Overlay", overlay)
 
