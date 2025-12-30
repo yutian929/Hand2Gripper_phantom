@@ -94,7 +94,8 @@ class BaseProcessor:
         # Get all folders in data_folder
         try:
             all_data_folders = [d1 for d1 in os.listdir(self.data_folder) if os.path.isdir(os.path.join(self.data_folder, d1))]
-            self.all_data_folders = sorted(all_data_folders, key=lambda x: int(x))
+            # 不再强制要求文件夹名为数字，直接按字符串排序
+            self.all_data_folders = sorted(all_data_folders)
             self.all_data_folders_idx = {x: idx for idx, x in enumerate(self.all_data_folders)}
         except OSError as e:
             if e.errno == errno.EACCES:
@@ -103,8 +104,6 @@ class BaseProcessor:
                 raise FileNotFoundError(f"Data folder not found: {self.data_folder}")
             else:
                 raise RuntimeError(f"OS error accessing data folder {self.data_folder}: {e}")
-        except ValueError as e:
-            raise ValueError(f"Invalid folder name format in {self.data_folder}. Folders should be numbered: {e}")
 
     def _init_camera_parameters(self) -> None:
         """Initialize camera intrinsics and extrinsics."""

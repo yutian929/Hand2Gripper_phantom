@@ -137,6 +137,7 @@ def process_all_demos(cfg: DictConfig, processor_classes: dict) -> None:
         processor = processor_cls(cfg)
         for data_sub_folder in tqdm(all_data_folders):
             # >>> Hand2Gripper >>> #
+            print(f"Processing data_sub_folder: {data_sub_folder}")
             if data_sub_folder in (
                 '0', 
             ):
