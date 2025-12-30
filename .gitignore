@@ -11,3 +11,4 @@ data/
 *.pth
 outputs/*
 phantom/outputs/*
+hand2gripper_dataset/

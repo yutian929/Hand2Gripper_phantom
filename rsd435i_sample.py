@@ -39,7 +39,7 @@ def main():
     ap.add_argument("--width", type=int, default=640, help="Color width")
     ap.add_argument("--height", type=int, default=480, help="Color height")
     ap.add_argument("--time", type=float, default=5.0, help="Record time in seconds")
-    ap.add_argument("--warmup", type=int, default=15, help="Warmup frames to stabilize exposure")
+    ap.add_argument("--warmup", type=int, default=3, help="Warmup seconds before recording")
     ap.add_argument("--show", action="store_true", help="Show the realtime video")
     args = ap.parse_args()
 
@@ -75,8 +75,19 @@ def main():
         raise RuntimeError("Failed to open VideoWriter. Try a different codec or install ffmpeg/GStreamer enabled OpenCV.")
 
     # ---------------- Warmup ----------------
-    for _ in range(max(0, args.warmup)):
+    print(f"Warmup: waiting {args.warmup} seconds before recording ...")
+    t_warmup_start = time.time()
+    while time.time() - t_warmup_start < args.warmup:
         pipeline.wait_for_frames()
+        if args.show:
+            frames = pipeline.wait_for_frames()
+            color_frame = frames.get_color_frame()
+            if color_frame:
+                color_bgr = np.asanyarray(color_frame.get_data())
+                color_show = cv2.putText(color_bgr, f"WARMUP", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                cv2.imshow("RealSense Stream", color_show)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
 
     # ---------------- Record loop ----------------
     depth_frames = []  # list of (H, W) float32 meters
