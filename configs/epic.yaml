@@ -3,12 +3,12 @@ debug: false
 verbose: false
 skip_existing: false
 n_processes: 1
-data_root_dir: "../data/raw/"
+data_root_dir: "../hand2gripper_dataset/"
 processed_data_root_dir: "../data/processed/"
 # >>> Hand2Gripper >>>
 hand2gripper_annotation_data_root_dir: "../data/hand2gripper_annotations/"
 # <<< Hand2Gripper <<<
-demo_name: "epic"
+demo_name: "20251230"
 
 # Processing settings
 mode: ["all"]  # Default processing mode
