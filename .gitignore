@@ -13,3 +13,4 @@ outputs/*
 phantom/outputs/*
 phantom/aloha/
 hand2gripper_dataset/
+.vscode/
