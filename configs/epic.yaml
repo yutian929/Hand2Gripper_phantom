@@ -10,7 +10,7 @@ processed_data_root_dir: "../data/processed/"
 # >>> Hand2Gripper >>>
 hand2gripper_annotation_data_root_dir: "../data/hand2gripper_annotations/"
 # <<< Hand2Gripper <<<
-demo_name: "20260114"
+demo_name: "20260118"
 
 # Processing settings
 mode: ["all"]  # Default processing mode

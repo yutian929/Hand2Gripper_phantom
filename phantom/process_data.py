@@ -123,11 +123,11 @@ def process_all_demos(cfg: DictConfig, processor_classes: dict) -> None:
             # 'BBOX', 
             # 'HAND_SEGMENTATION',
             # 'HAND2D', 
-            'ARM_SEGMENTATION', 
-            "HAND_INPAINT",
-            "ACTION",
-            "SMOOTHING",
-            "ROBOT_INPAINT"
+            # 'ARM_SEGMENTATION', 
+            # "HAND_INPAINT",
+            # "ACTION",
+            # "SMOOTHING",
+            # "ROBOT_INPAINT"
             ):
             continue
         else:
