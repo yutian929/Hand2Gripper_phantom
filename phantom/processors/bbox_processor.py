@@ -180,7 +180,7 @@ class BBoxProcessor(BaseProcessor):
         # No need to use EPIC pre-defined data
         if self.epic:
             self._gen_epic_hand_data(imgs_rgb)
-            detection_results = self._process_epic_frames(imgs_rgb)
+            detection_results = self._process_epic_frames(imgs_rgb)  # TODO: Check，这一步出来就坏事了
         # <<< Hand2Gripper <<< #
         else:
             detection_results = self._process_frames(imgs_rgb)
@@ -190,7 +190,7 @@ class BBoxProcessor(BaseProcessor):
         
         # Generate visualization for quality assessment
         visualization_results = self._generate_visualization(imgs_rgb, processed_results)
-        
+
         # Save all results to disk
         self._save_results(paths, processed_results, visualization_results)
 
@@ -212,6 +212,7 @@ class BBoxProcessor(BaseProcessor):
                 
                 # Check if detections exist
                 if len(detections) == 0:
+                    print(f"Frame {idx}: No hands detected.")
                     all_detections[idx] = []
                     continue
 
@@ -553,7 +554,8 @@ class BBoxProcessor(BaseProcessor):
                 return empty_result
 
             # Apply spatial validation
-            is_valid = self._validate_spatial_position(bbox_center, hand_side)
+            # is_valid = self._validate_spatial_position(bbox_center, hand_side)  # >>> Hand2Gripper, Damn setting >>>
+            is_valid = True  # >>> Hand2Gripper, Damn setting >>>
             return (is_valid, bbox, bbox_center) if is_valid else empty_result
 
         except Exception as e:

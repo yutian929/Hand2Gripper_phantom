@@ -132,7 +132,7 @@ class ActionProcessor(BaseProcessor):
         process = rtab_map_client.launch(use_new_terminal=False, capture_output=True)
         target_text = ">>> VSLAM PLAYBACK COMPLETE <<<" 
         rtab_map_client.wait_for_text(process, target_text, timeout=len(imgs_rgb)*0.1)
-        self.visualize_trajectories(paths.hand2gripper_vslam_camera_link_traj)
+        # self.visualize_trajectories(paths.hand2gripper_vslam_camera_link_traj)
         # <<< Hand2Gripper <<<
 
     # >>> Hand2Gripper >>>

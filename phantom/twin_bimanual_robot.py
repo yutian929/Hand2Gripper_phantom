@@ -188,11 +188,6 @@ class TwinBimanualRobot:
         options["camera_principalpixel"] = self.camera_params.principalpixel
         options["camera_focalpixel"] = self.camera_params.focalpixel
 
-        # >>> Hand2Gripper >>> #
-        # options["force_x"] = 1.0  # X position offset for robot base
-        # options["force_z"] = 1.2  # Z position offset for robot base
-        # <<< Hand2Gripper <<< #
-
         # Create the robosuite environment
         # breakpoint()
         self.env = EnvRobosuite(

@@ -279,7 +279,7 @@ class RobotInpaintProcessor(BaseProcessor):
                 assert len(T_cam_ee_L_list) == num_frames, f"Left trajectory mismatch: {len(T_cam_ee_L_list)} vs {num_frames}"
                 assert len(T_cam_ee_R_list) == num_frames, f"Right trajectory mismatch: {len(T_cam_ee_R_list)} vs {num_frames}"
                 assert len(width_L) == num_frames, f"Left gripper width mismatch: {len(width_L)} vs {num_frames}"
-
+                # breakpoint()
                 # 5. 创建 Real2Sim 渲染器 (左臂和右臂各一个)
                 sample_img = rgbs_inpaint[0]
                 img_h, img_w = sample_img.shape[:2]

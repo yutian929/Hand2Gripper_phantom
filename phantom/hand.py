@@ -166,7 +166,7 @@ class HandModel:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         checkpoint_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
-            "../submodules/Hand2Gripper_hand2gripper/hand2gripper/release_checkpoint/l084r048.pt"
+            "../submodules/Hand2Gripper_hand2gripper/hand2gripper/release_checkpoint/simple.pt"
         )
         if not os.path.exists(checkpoint_path):
             print(f"Model path {checkpoint_path} doesn't exist.")
@@ -436,7 +436,7 @@ class HandModel:
         left_pt = vertices[4]
         right_pt = vertices[8]
 
-        # print(f"hand_side: {hand_side}, left_pt: {pred_triple[1]}, right_pt: {pred_triple[2]}")
+        print(f"hand_side: {hand_side}, left_pt: {pred_triple[1]}, right_pt: {pred_triple[2]}")
 
         # >>> Origin >>>
         # Calculate grasp point as midpoint between thumb and middle finger tips
